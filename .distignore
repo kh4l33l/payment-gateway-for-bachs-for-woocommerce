@@ -1,0 +1,31 @@
+# Files and directories excluded from the WordPress.org plugin distribution.
+
+# VCS and CI
+.git/
+.github/
+.gitattributes
+.gitignore
+
+# Dev tooling
+README.md
+composer.json
+composer.lock
+package.json
+package-lock.json
+node_modules/
+bin/
+tests/
+graphify-out/
+*.map
+
+# wp.org asset source (banners/icons/screenshots live in the SVN assets folder, not the build)
+.wordpress-org/
+
+# Local/dev scripts
+*.sh
+*.bat
+debug_*.php
+test_*.php
+
+# OS junk
+.DS_Store

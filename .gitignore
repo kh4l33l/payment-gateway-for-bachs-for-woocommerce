@@ -1,0 +1,10 @@
+# Build output
+*.zip
+
+# Tooling artifacts
+graphify-out/
+node_modules/
+vendor/
+
+# OS junk
+.DS_Store

@@ -1,0 +1,24 @@
+# Mirrors build.sh zip exclusions — dev-only files that must not ship in the plugin zip.
+.git/
+.github/
+.gitignore
+.gitattributes
+.wordpress-org/
+.pressshipignore
+.distignore
+graphify-out/
+node_modules/
+vendor/
+tests/
+build.sh
+*.sh
+*.map
+*.log
+*.zip
+.editorconfig
+.DS_Store
+README.md
+composer.json
+composer.lock
+package.json
+package-lock.json
