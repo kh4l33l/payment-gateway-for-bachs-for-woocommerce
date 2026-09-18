@@ -28,7 +28,6 @@
 				},
 			},
 			[
-				createElement( 'span', { key: 'label' }, label ),
 				settings.icon &&
 					createElement( 'img', {
 						key: 'icon',
@@ -36,6 +35,7 @@
 						alt: label,
 						style: { height: '24px', maxWidth: '100px' },
 					} ),
+				createElement( 'span', { key: 'label' }, label ),
 			]
 		);
 	};

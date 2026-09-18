@@ -67,6 +67,7 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 		add_action( 'admin_enqueue_scripts', array( $this, 'admin_scripts' ) );
 		add_action( 'woocommerce_receipt_' . $this->id, array( $this, 'receipt_page' ) );
 		add_action( 'wp_enqueue_scripts', array( $this, 'payment_scripts' ) );
+		add_action( 'wp_enqueue_scripts', array( $this, 'checkout_styles' ) );
 
 		if ( ! $this->is_valid_for_use() ) {
 			$this->enabled = 'no';
@@ -100,7 +101,8 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 	 *
 	 * The core implementation outputs the image with no dimensions, so themes that
 	 * don't constrain payment method icons render the 256px PNG at full size. Size it
-	 * inline to match the checkout block's label icon.
+	 * inline to match the checkout block's label icon. checkout_styles() moves it in
+	 * front of the title.
 	 *
 	 * @return string
 	 */
@@ -109,7 +111,7 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 
 		if ( $this->icon ) {
 			$icon = sprintf(
-				'<img src="%1$s" alt="%2$s" height="24" style="height:24px;width:auto;max-width:100px;" />',
+				'<img src="%1$s" alt="%2$s" height="24" style="height:24px;width:auto;max-width:100px;margin:0;" />',
 				esc_url( WC_HTTPS::force_https_url( $this->icon ) ),
 				esc_attr( $this->get_title() )
 			);
@@ -648,6 +650,26 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 
 		echo '<p><a class="pgbw-cancel" href="' . esc_url( $order->get_cancel_order_url() ) . '">' . esc_html__( 'Cancel order &amp; restore cart', 'payment-gateway-for-bachs-for-woocommerce' ) . '</a></p>';
 		echo '</div>';
+	}
+
+	/**
+	 * Show the gateway icon before the title on the classic checkout.
+	 *
+	 * The core payment-method.php template prints the title and then the icon, so
+	 * reorder them with flexbox rather than altering the gateway title itself.
+	 */
+	public function checkout_styles() {
+		if ( ! function_exists( 'is_checkout' ) || ! is_checkout() ) {
+			return;
+		}
+
+		wp_register_style( 'pgbw-bachs-checkout', false, array(), PGBW_VERSION );
+		wp_enqueue_style( 'pgbw-bachs-checkout' );
+		wp_add_inline_style(
+			'pgbw-bachs-checkout',
+			'.wc_payment_method.payment_method_' . $this->id . ' > label{display:inline-flex;align-items:center;gap:0.5em;}'
+			. '.wc_payment_method.payment_method_' . $this->id . ' > label > img{order:-1;}'
+		);
 	}
 
 	/**
