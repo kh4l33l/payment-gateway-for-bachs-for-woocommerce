@@ -96,6 +96,29 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 	}
 
 	/**
+	 * Gateway icon for the classic checkout.
+	 *
+	 * The core implementation outputs the image with no dimensions, so themes that
+	 * don't constrain payment method icons render the 256px PNG at full size. Size it
+	 * inline to match the checkout block's label icon.
+	 *
+	 * @return string
+	 */
+	public function get_icon() {
+		$icon = '';
+
+		if ( $this->icon ) {
+			$icon = sprintf(
+				'<img src="%1$s" alt="%2$s" height="24" style="height:24px;width:auto;max-width:100px;" />',
+				esc_url( WC_HTTPS::force_https_url( $this->icon ) ),
+				esc_attr( $this->get_title() )
+			);
+		}
+
+		return apply_filters( 'woocommerce_gateway_icon', $icon, $this->id );
+	}
+
+	/**
 	 * The WooCommerce API (wc-api) URL Bachs delivers webhooks to.
 	 *
 	 * @return string
