@@ -83,7 +83,7 @@ Not in this version. This release covers one-time payments and refunds.
 = 1.1.0 =
 * Fix: customers can pay again for an unpaid order. A second payment attempt no longer fails with a "Duplicate reference" error, and an open Bachs checkout is reused.
 * Fix: the order payment page now shows a "Cancel order & restore cart" link.
-* Fix: the popup takes customers back to the order payment page to start again when their checkout expires, and shows an error if the checkout can't open.
+* Fix: the popup takes customers back to the order payment page to start again when their checkout expires, and shows an error if the checkout modal can't open.
 * Fix: the Bachs icon no longer shows at full size on the classic checkout, and now appears before the payment method title.
 * Fix: refund order notes now show the Bachs refund ID.
 * New: handles the `checkout.expired` event, which replaces `collection.abandoned` (removed by Bachs). An expired checkout adds an order note and leaves the order pending so the customer can pay again.
@@ -91,7 +91,6 @@ Not in this version. This release covers one-time payments and refunds.
 * New: failed refunds (`refund.failed`) add an order note so you know the customer wasn't refunded.
 * New: webhooks are verified with the `X-Bachs-Signature-V2` header when present, so rotating the signing secret doesn't interrupt deliveries.
 * New: checkout sessions are created with an idempotency key, and API errors in the log include the Bachs error code and request ID.
-* Tested with WordPress 7.1 and WooCommerce 11.1.
 
 = 1.0.0 =
 * Initial release: hosted-checkout one-time payments, refunds, failed/abandoned handling, WooCommerce Blocks support, and HPOS compatibility.
