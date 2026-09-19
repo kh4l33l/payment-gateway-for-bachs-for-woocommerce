@@ -55,6 +55,7 @@ rsync -a ./ "$STAGING_DIR"/ \
   --exclude ".gitattributes" \
   --exclude ".DS_Store" \
   --exclude "README.md" \
+  --exclude "CLAUDE.md" \
   --exclude "composer.json" \
   --exclude "composer.lock" \
   --exclude "package.json" \

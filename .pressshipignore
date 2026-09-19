@@ -18,6 +18,7 @@ build.sh
 .editorconfig
 .DS_Store
 README.md
+CLAUDE.md
 composer.json
 composer.lock
 package.json

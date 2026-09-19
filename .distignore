@@ -8,6 +8,7 @@
 
 # Dev tooling
 README.md
+CLAUDE.md
 composer.json
 composer.lock
 package.json
