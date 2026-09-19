@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-2.0+.
 msgid ""
 msgstr ""
-"Project-Id-Version: Payment Gateway for Bachs for WooCommerce 1.0.0\n"
+"Project-Id-Version: Payment Gateway for Bachs for WooCommerce 1.1.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/payment-gateway-for-bachs-for-woocommerce\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-07-16T14:52:37+00:00\n"
+"POT-Creation-Date: 2026-09-19T10:59:10+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: payment-gateway-for-bachs-for-woocommerce\n"
@@ -40,229 +40,252 @@ msgid "https://ibrahim.ng"
 msgstr ""
 
 #: includes/class-pgbw-blocks-support.php:69
-#: includes/class-pgbw-gateway.php:44
-#: includes/class-pgbw-gateway.php:120
+#: includes/class-pgbw-gateway.php:54
+#: includes/class-pgbw-gateway.php:156
 #: assets/js/blocks/pgbw-bachs-blocks.js:12
 msgid "Bachs"
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:45
+#: includes/class-pgbw-gateway.php:55
 msgid "Accept card, bank transfer, mobile money and crypto payments through the Bachs hosted checkout. Customers pay on Bachs (via redirect or an on-site popup) and are returned to your store once done."
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:111
+#: includes/class-pgbw-gateway.php:147
 msgid "Enable/Disable"
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:112
+#: includes/class-pgbw-gateway.php:148
 msgid "Enable Bachs"
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:117
+#: includes/class-pgbw-gateway.php:153
 msgid "Title"
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:119
+#: includes/class-pgbw-gateway.php:155
 msgid "Payment method title shown to the customer during checkout."
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:124
+#: includes/class-pgbw-gateway.php:160
 msgid "Description"
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:126
+#: includes/class-pgbw-gateway.php:162
 msgid "Payment method description shown to the customer during checkout."
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:127
+#: includes/class-pgbw-gateway.php:163
 msgid "Pay securely via Bachs — card, bank transfer, mobile money and crypto."
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:131
+#: includes/class-pgbw-gateway.php:167
 msgid "Checkout type"
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:133
+#: includes/class-pgbw-gateway.php:169
 msgid "Redirect sends the customer to the Bachs hosted checkout page. Popup opens the Bachs checkout in a modal on your site (the customer stays on your store)."
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:137
+#: includes/class-pgbw-gateway.php:173
 msgid "Redirect (hosted checkout page)"
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:138
+#: includes/class-pgbw-gateway.php:174
 msgid "Popup (on-site modal)"
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:142
+#: includes/class-pgbw-gateway.php:178
 msgid "Test mode"
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:143
+#: includes/class-pgbw-gateway.php:179
 msgid "Enable test (sandbox) mode"
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:145
+#: includes/class-pgbw-gateway.php:181
 msgid "Uses the Bachs sandbox environment and your sandbox keys. Uncheck to accept live payments."
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:150
+#: includes/class-pgbw-gateway.php:186
 msgid "Sandbox API Key"
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:152
+#: includes/class-pgbw-gateway.php:188
 msgid "Your Bachs sandbox API key (starts with sk_sandbox_). Find it under Developer → API keys in your Bachs dashboard."
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:157
+#: includes/class-pgbw-gateway.php:193
 msgid "Sandbox Webhook Signing Secret"
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:159
+#: includes/class-pgbw-gateway.php:195
 msgid "The signing secret for your sandbox webhook endpoint, from the Bachs developer portal."
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:164
+#: includes/class-pgbw-gateway.php:200
 msgid "Live API Key"
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:166
+#: includes/class-pgbw-gateway.php:202
 msgid "Your Bachs live API key (starts with sk_live_). Find it under Developer → API keys in your Bachs dashboard."
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:171
+#: includes/class-pgbw-gateway.php:207
 msgid "Live Webhook Signing Secret"
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:173
+#: includes/class-pgbw-gateway.php:209
 msgid "The signing secret for your live webhook endpoint, from the Bachs developer portal."
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:178
+#: includes/class-pgbw-gateway.php:214
 msgid "Webhook URL"
 msgstr ""
 
 #. translators: 1: comma-separated list of webhook event names, 2: Bachs dashboard URL
-#: includes/class-pgbw-gateway.php:182
+#: includes/class-pgbw-gateway.php:218
 #, php-format
 msgid "Add this URL as a webhook endpoint in your %2$sBachs developer portal%3$s and subscribe to these events: %1$s."
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:191
+#: includes/class-pgbw-gateway.php:227
 msgid "Debug log"
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:192
+#: includes/class-pgbw-gateway.php:228
 msgid "Enable logging"
 msgstr ""
 
 #. translators: %s: log location
-#: includes/class-pgbw-gateway.php:196
+#: includes/class-pgbw-gateway.php:232
 #, php-format
 msgid "Log gateway events to %s. Turn off on production sites."
 msgstr ""
 
 #. translators: %s: currency code
-#: includes/class-pgbw-gateway.php:236
+#: includes/class-pgbw-gateway.php:274
 #, php-format
 msgid "Bachs does not support the %s currency."
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:278
-msgid "Awaiting Bachs payment."
-msgstr ""
-
-#: includes/class-pgbw-gateway.php:294
+#: includes/class-pgbw-gateway.php:319
 msgid "Unable to start the Bachs payment. Please try again."
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:350
+#: includes/class-pgbw-gateway.php:398
+msgid "Awaiting Bachs payment."
+msgstr ""
+
+#: includes/class-pgbw-gateway.php:548
 msgid "Order not found."
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:359
+#: includes/class-pgbw-gateway.php:557
 msgid "No Bachs charge ID is stored on this order, so it cannot be refunded through Bachs."
 msgstr ""
 
 #. translators: 1: amount, 2: Bachs refund ID
-#: includes/class-pgbw-gateway.php:385
+#: includes/class-pgbw-gateway.php:583
 #, php-format
 msgid "Bachs refund initiated for %1$s. Refund ID: %2$s. Refunds settle asynchronously and are confirmed by a refund.paid webhook."
 msgstr ""
 
 #. translators: %s: Bachs charge ID
-#: includes/class-pgbw-gateway.php:461
+#: includes/class-pgbw-gateway.php:667
 #, php-format
 msgid "Bachs payment completed. Charge ID: %s"
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:462
-#: includes/class-pgbw-gateway.php:534
+#: includes/class-pgbw-gateway.php:668
+#: includes/class-pgbw-gateway.php:728
+#: includes/class-pgbw-gateway.php:777
+#: includes/class-pgbw-gateway.php:800
 msgid "n/a"
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:482
+#: includes/class-pgbw-gateway.php:688
 msgid "Payment failed at Bachs."
 msgstr ""
 
 #. translators: %s: failure reason
-#: includes/class-pgbw-gateway.php:485
+#: includes/class-pgbw-gateway.php:691
 #, php-format
 msgid "Bachs payment failed: %s"
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:499
-msgid "Checkout abandoned or expired."
+#. translators: 1: amount paid, 2: amount due, 3: amount outstanding, 4: currency code, 5: Bachs charge ID
+#: includes/class-pgbw-gateway.php:723
+#, php-format
+msgid "Bachs payment was short. Paid %1$s of %2$s %4$s, leaving %3$s %4$s outstanding. Charge ID: %5$s. Collect the balance or refund the payment before fulfilling this order."
 msgstr ""
 
-#. translators: %s: abandonment reason
-#: includes/class-pgbw-gateway.php:502
+#. translators: %s: Bachs checkout ID
+#: includes/class-pgbw-gateway.php:754
 #, php-format
-msgid "Bachs checkout abandoned: %s"
+msgid "Bachs checkout session %s expired without payment. The customer can still pay from the order payment page, which starts a new session."
 msgstr ""
 
 #. translators: %s: refunded amount
-#: includes/class-pgbw-gateway.php:533
+#: includes/class-pgbw-gateway.php:776
 #, php-format
 msgid "Bachs refund settled. Amount refunded: %s"
 msgstr ""
 
+#. translators: 1: Bachs refund ID, 2: requested amount, 3: failure reason
+#: includes/class-pgbw-gateway.php:798
+#, php-format
+msgid "Bachs refund %1$s for %2$s failed, so the customer has not been refunded, although this order still shows the refund. Reason: %3$s. Delete the refund from this order and refund again, or refund the customer another way."
+msgstr ""
+
+#: includes/class-pgbw-gateway.php:801
+msgid "not given"
+msgstr ""
+
 #. translators: %s: settings URL
-#: includes/class-pgbw-gateway.php:595
+#: includes/class-pgbw-gateway.php:892
 #, php-format
 msgid "Bachs is enabled but no API key is set. Add your keys <a href=\"%s\">here</a>."
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:618
+#: includes/class-pgbw-gateway.php:915
 msgid "We could not load the Bachs checkout. Please try again."
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:620
+#: includes/class-pgbw-gateway.php:918
 msgid "Your secure Bachs checkout is opening. If it does not appear, use the button below."
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:622
+#: includes/class-pgbw-gateway.php:920
 msgid "Pay with Bachs"
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:625
+#: includes/class-pgbw-gateway.php:923
+#: includes/class-pgbw-gateway.php:944
 msgid "Cancel order &amp; restore cart"
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:669
+#: includes/class-pgbw-gateway.php:1010
 msgid "Checkout closed. Click \"Pay with Bachs\" to try again."
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:670
+#: includes/class-pgbw-gateway.php:1011
 msgid "The payment failed. Click \"Pay with Bachs\" to try again."
 msgstr ""
 
-#: includes/class-pgbw-gateway.php:671
-msgid "This checkout session expired. Please cancel and start over."
+#: includes/class-pgbw-gateway.php:1012
+msgid "This checkout session expired. Taking you back to start a new one…"
+msgstr ""
+
+#: includes/class-pgbw-gateway.php:1013
+msgid "The Bachs checkout could not load. Please disable any ad/script blocker for this page and try again."
+msgstr ""
+
+#: includes/class-pgbw-gateway.php:1014
+msgid "Something went wrong opening the checkout. Please try again, or cancel to start over."
 msgstr ""
 
 #. translators: 1: order number, 2: site name
-#: includes/class-pgbw-helpers.php:180
+#: includes/class-pgbw-helpers.php:225
 #, php-format
 msgid "Order %1$s — %2$s"
 msgstr ""

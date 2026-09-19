@@ -42,7 +42,15 @@
 			return;
 		}
 		setStatus( '' );
-		window.Bachs.Checkout.open( { checkoutUrl: params.checkout_url } );
+
+		// open() rejects on a bad token or a checkout URL from the wrong origin.
+		var opened = window.Bachs.Checkout.open( { checkoutUrl: params.checkout_url } );
+		if ( opened && typeof opened.catch === 'function' ) {
+			opened.catch( function ( error ) {
+				log( 'open failed', error && error.message );
+				setStatus( params.i18n.error );
+			} );
+		}
 	}
 
 	function onEvent( event ) {

@@ -12,7 +12,8 @@ Accept card, bank transfer, mobile money and crypto payments on your WooCommerce
 - **Multiple payment methods** — cards, bank transfer, mobile money, and crypto stablecoins (USDT, USDC).
 - **Sell in USD or NGN** — with Bachs Adaptive Pricing, customers can pay in their local currency (GHS, KES, UGX, TZS, XAF, XOF, ZMW, RWF and more). Bachs settles in USD or NGN.
 - **Webhook-verified fulfilment** — orders complete on the signed `collection.succeeded` event, never on the browser redirect.
-- **Failed and abandoned handling**, **refunds** from the WooCommerce order screen, and **sandbox mode**.
+- **Failed, expired and short payments**: failed payments mark the order failed, short payments put it on hold, and customers whose checkout expired can pay again or cancel.
+- **Refunds** from the WooCommerce order screen, and **sandbox mode**.
 - **WooCommerce Blocks** support and **HPOS** compatibility.
 
 ## Requirements
@@ -25,7 +26,7 @@ Accept card, bank transfer, mobile money and crypto payments on your WooCommerce
 
 1. `process_payment()` sends the customer back to the order's Bachs checkout session if it's still open. Otherwise it creates a Bachs product for the order total and a new checkout session, storing the `checkout_id` and checkout URL on the order.
 2. The customer pays on the Bachs checkout — by redirect, or in a modal opened by `bachs.js` on the order-pay page.
-3. Bachs delivers a signed webhook to the WooCommerce API endpoint (`?wc-api=pgbw_bachs`). The signature is verified (HMAC-SHA256 over `{timestamp}.{body}`) before `collection.succeeded` completes the order.
+3. Bachs delivers a signed webhook to the WooCommerce API endpoint (`?wc-api=pgbw_bachs`). The signature is verified (HMAC-SHA256 over `{timestamp}.{body}`, from `X-Bachs-Signature-V2` or `X-Bachs-Signature`) before `collection.succeeded` completes the order. The plugin also handles `collection.failed`, `collection.underpaid`, `checkout.expired`, `refund.paid` and `refund.failed`.
 
 ## Project layout
 

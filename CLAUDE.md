@@ -11,8 +11,8 @@ A WooCommerce payment gateway for the [Bachs](https://bachs.io) hosted checkout.
 
 | | Minimum | Tested up to |
 | --- | --- | --- |
-| WordPress | 6.2 | 7.0 (current release is 7.1.1) |
-| WooCommerce | 8.0 | 10.9 (current release is 11.1.1) |
+| WordPress | 6.2 | 7.1 |
+| WooCommerce | 8.0 | 11.1 |
 | PHP | 7.4 | |
 
 The plugin declares compatibility with HPOS (`custom_order_tables`) and the Cart and Checkout blocks (`cart_checkout_blocks`). Order data is always read and written through `WC_Order` methods, never post meta, so it works with HPOS on or off.
@@ -38,6 +38,7 @@ assets/css/pgbw-bachs-popup.css                Order-pay page styles for popup m
 languages/*.pot                                Translation template
 .wordpress-org/                                WordPress.org banners, icons, screenshots (SVN assets, not shipped)
 build.sh, build-wporg.sh                       Release zips (see Building and releasing)
+tests/run.php                                  Stand-alone logic checks (see Testing, not shipped)
 ```
 
 The gateway ID is `pgbw_bachs`, and its settings live in the `woocommerce_pgbw_bachs_settings` option.
@@ -46,11 +47,12 @@ The gateway ID is `pgbw_bachs`, and its settings live in the `woocommerce_pgbw_b
 
 1. **`process_payment()`**
    - If the order already has a Bachs checkout session that is `open` and not within 5 minutes (`SESSION_REUSE_MARGIN`) of expiring, the customer is sent back to it.
-   - Otherwise the plugin gets or creates a fixed-price Bachs product for the order total (`PGBW_Helpers::get_or_create_product()`), then creates a checkout session (`POST /v1/checkout-sessions`) with:
+   - Otherwise the plugin gets or creates a fixed-price Bachs product for the order total (`PGBW_Helpers::get_or_create_product()`), then `create_checkout_session()` posts to `/v1/checkout-sessions` with an `Idempotency-Key` of `pgbw-checkout-{reference}` and:
      - `reference`: the order key, with `-2`, `-3` and so on added on later attempts
      - `metadata`: `order_id` and `order_key`
      - `success_url`: the order-received page
      - `cancel_url`: the order-pay form
+   - If Bachs reports the reference is taken ("Duplicate reference", or `IDEMPOTENCY_CONFLICT`), the plugin retries once with the next reference. Any other error fails the payment.
    - The session ID, checkout URL and attempt count are saved on the order, and the order is set to pending.
 2. **Where the customer goes**
    - **Redirect mode:** straight to the session's `checkout_url`.
@@ -60,23 +62,33 @@ The gateway ID is `pgbw_bachs`, and its settings live in the `woocommerce_pgbw_b
    - `checkout.completed`: go to the order-received page.
    - `checkout.expired`: go to the order-pay form, where placing the order creates a new session.
    - `checkout.closed` and `checkout.failed`: show a message and let the customer reopen the modal.
+   - If `Bachs.Checkout.open()` rejects (bad token or wrong origin), show the error message.
 
 ### Webhooks handled
 
 | Event | Handler | Effect |
 | --- | --- | --- |
-| `collection.succeeded` | `handle_collection_succeeded()` | `payment_complete( $charge_id )`, stores the charge ID and the Bachs customer ID |
+| `collection.succeeded` | `handle_collection_succeeded()` | `payment_complete( $charge_id )`, stores the charge ID and the Bachs customer ID. Works from pending, failed and on-hold. |
 | `collection.failed` | `handle_collection_failed()` | Order set to failed (ignored for replaced sessions) |
-| `collection.abandoned` | `handle_collection_abandoned()` | Order cancelled. **Bachs removed this event on 2026-07-21.** See the backlog. |
-| `refund.paid` | `handle_refund_paid()` | Order note; order found by transaction ID (the charge ID) |
+| `collection.underpaid` | `handle_collection_underpaid()` | Order set to on hold with the amounts in the note; the charge ID is stored as the transaction ID so the payment can be refunded. Not ignored for replaced sessions. |
+| `checkout.expired` | `handle_checkout_expired()` | Order note only, for pending or failed orders on the current session. The order stays pending. |
+| `refund.paid` | `handle_refund_paid()` | Order note |
+| `refund.failed` | `handle_refund_failed()` | Order note telling the merchant the customer wasn't refunded; logged as an error |
+
+Refund events find the order by transaction ID (the charge ID) through `get_order_by_charge()`, which ignores orders from other gateways. Bachs removed `collection.abandoned` on 2026-07-21; `checkout.expired` replaces it.
 
 `resolve_order()` finds the order from `metadata.order_id`, falling back to `reference`, with any `-N` suffix removed, looked up as an order key. It returns null for orders that don't use this gateway.
 
-Signature: `X-Bachs-Timestamp` plus `X-Bachs-Signature`, an HMAC-SHA256 hex digest of `"{timestamp}.{raw_body}"`, with a 300-second timestamp tolerance (`MAX_TIMESTAMP_DRIFT`). Always verify against the raw body.
+Signature: an HMAC-SHA256 hex digest of `"{timestamp}.{raw_body}"`, with a 300-second timestamp tolerance (`MAX_TIMESTAMP_DRIFT`). The plugin accepts either header:
+
+- `X-Bachs-Signature-V2` (`t={timestamp},v1={sig}[,v1={sig}]`), checked by `verify_webhook_signature_v2()`. Any matching `v1` passes, so deliveries keep verifying while a signing secret is rotated.
+- `X-Bachs-Signature` with `X-Bachs-Timestamp`, checked by `verify_webhook_signature()`.
+
+Always verify against the raw body.
 
 ### Refunds
 
-`process_refund()` posts to `/v1/refunds` with `charge_id` and a unique reference (`wc_refund_{order_id}_{time}`). It omits `amount` for a full refund. Bachs allows one refund per charge, including partial refunds, and can't refund NGN bank transfers. Refunds settle asynchronously and are confirmed by `refund.*` webhooks.
+`process_refund()` posts to `/v1/refunds` with `charge_id` and a unique reference (`wc_refund_{order_id}_{time}`). It omits `amount` for a full refund, and the order note shows the `refund_id` from the response. There's no idempotency key on refunds: Bachs already rejects a second refund on a charge, and a key would stop a retry after a failed refund for 24 hours. Bachs allows one refund per charge, including partial refunds, and can't refund NGN bank transfers. Refunds settle asynchronously and are confirmed by `refund.*` webhooks.
 
 ### Order meta
 
@@ -109,7 +121,10 @@ User meta `_pgbw_customer_id_{sandbox|live}` stores the Bachs customer ID so ret
 - **Gateway icon in the classic checkout.** `WC_Payment_Gateway::get_icon()` outputs the image with no size, and some themes don't size gateway icons, so the 256px PNG showed at full size. `get_icon()` sets a 24px height inline to match the Checkout block. Core's `payment-method.php` template prints the title before the icon, so `checkout_styles()` adds a small inline stylesheet that uses flexbox `order` to put the icon first. This keeps the gateway title free of HTML, because the title also appears in orders, emails and the WordPress Admin. The Checkout block renders the icon first in JS.
 - **Fixed-price product per order.** When the plugin was written, checkout sessions needed product IDs. A fixed price locks the amount on the Bachs checkout. Bachs now accepts a raw `pricing` object (see the backlog).
 - **Popup `baseUrl`.** `pgbw-bachs-popup.js` takes the `bachs.js` `baseUrl` from the checkout URL's origin so sandbox sessions pass the SDK's origin check. The current docs say this isn't needed when a full `checkoutUrl` is passed. It's harmless, so it's kept.
-- **Errors are escaped in exceptions** to satisfy Plugin Check (`ExceptionNotEscaped`). As a side effect, log lines show entities such as `&#039;`.
+- **Expired checkouts leave the order pending.** Before Bachs removed `collection.abandoned`, abandoned checkouts cancelled the order. Now that customers can pay again, `checkout.expired` only adds a note, and WooCommerce's Hold stock setting cancels unpaid orders. The trade-off is that stores without stock management keep abandoned orders pending until someone cancels them.
+- **Short payments go on hold, even from a replaced session.** Money was received, so the merchant has to decide whether to collect the balance or refund. A later `collection.succeeded` for the same order still completes it.
+- **Idempotency key only on checkout sessions.** The key is the session reference, so a request that timed out after Bachs created the session returns that session on the next identical request. If the body changed (for example new billing details), Bachs answers `IDEMPOTENCY_CONFLICT` and the plugin moves to the next reference. Products don't use a key, because a duplicate product is harmless and a cached response could return an archived product. Refunds don't use one either (see Refunds).
+- **Errors are escaped in exceptions** to satisfy Plugin Check (`ExceptionNotEscaped`). As a side effect, log lines show entities such as `&#039;`. `PGBW_API` keeps the unescaped `last_error_code` and `last_error_detail` for logic, and error messages include the Bachs `error_code` and `x-request-id`.
 - **Logging.** `log()` always writes `error` and `critical` levels, and writes everything else only when the Debug log setting is on. The log source is `pgbw_bachs`.
 
 ## Conventions
@@ -120,6 +135,12 @@ User meta `_pgbw_customer_id_{sandbox|live}` stores the Bachs customer ID so ret
 - **Dependencies:** There's no Composer or npm build. The Checkout block JS is hand-written, and its dependencies are listed in `pgbw-bachs-blocks.asset.php`.
 - **Security:** Never trust client-side payment events. Fulfilment comes only from verified webhooks.
 - **Money:** Bachs amounts are decimal strings in the currency's major unit (`PGBW_Helpers::format_amount()`), never minor units.
+
+## Testing
+
+`php tests/run.php` (PHP 8.0+) runs stand-alone checks for the webhook handlers, both signature headers, refund notes and checkout session creation, including the reference-conflict retry. It stubs just enough of WordPress and WooCommerce to load the plugin classes, so it needs no site. Add a check there when you change any of that logic.
+
+wiggledoo.com has no Bachs sandbox keys, so live-site checks are read-only.
 
 ## Building and releasing
 
@@ -137,32 +158,16 @@ User meta `_pgbw_customer_id_{sandbox|live}` stores the Bachs customer ID so ret
 
 ## Backlog
 
-This list comes from a review on 2026-09-19 against the Bachs API changelog, WordPress 7.1.1 and WooCommerce 11.1.1. Work through it before the next WordPress.org release.
+The 2026-09-19 review found three fixes needed before release and four should-fix items. All are done in 1.1.0: `checkout.expired`, `collection.underpaid` and `refund.failed` handling, the refund ID fix, the checkout session idempotency key, V2 signatures and the popup `open()` rejection.
 
-### Fix before release
+### Before releasing 1.1.0
 
-1. **Replace `collection.abandoned` with `checkout.expired`.** Bachs removed `collection.abandoned` on 2026-07-21, so expired checkouts currently do nothing. Also update `webhook_events()`, the settings text and the readme FAQ. Suggested behaviour: add an order note and leave the order pending so the customer can still retry, and let WooCommerce's Hold stock setting cancel unpaid orders. The trade-off is that stores without stock management keep abandoned orders pending. Ignore events from replaced sessions (`is_stale_session_event()`).
-2. **Handle `refund.failed`.** Today WooCommerce records the refund as done even when Bachs fails to deliver it, and the merchant isn't told. At a minimum, add an order note saying the refund failed and can be retried.
-3. **Fix the refund ID in order notes.** `process_refund()` reads `$response->id`, but Bachs returns `refund_id`, so the note always shows a blank ID.
-
-### Should fix
-
-4. **Handle `collection.underpaid`.** Put the order on hold with `amount_paid`, `amount_expected` and `amount_remaining` in the note. Today a short bank transfer leaves the order pending.
-5. **Send an `Idempotency-Key` header** on POST requests (checkout sessions, products, refunds). Use the session reference for checkout sessions. Without it, a timeout after Bachs has created the session leads to "Duplicate reference" on the next attempt. Keys are cached for 24 hours on 2xx responses. Reusing a key with a different body returns `409 IDEMPOTENCY_CONFLICT`. For refunds, Bachs also accepts an `idempotency_key` body field.
-6. **Verify `X-Bachs-Signature-V2`** (`t=...,v1=...,v1=...`), accepting any matching `v1`. Fall back to the V1 header. This keeps webhooks working during a signing-secret rotation.
-7. **Handle `Bachs.Checkout.open()` rejection** in `pgbw-bachs-popup.js`, for example a bad token or wrong origin. Today the customer sees the spinner and no message.
-
-### Release housekeeping
-
-- Bump to 1.1.0, because the webhook changes alter which events merchants need to subscribe to. Write changelog and upgrade notice entries covering the icon fixes, retrying payment, the cancel link and the new events.
-- Change `Tested up to` to 7.1 and `WC tested up to` to 11.1.
-- Update the event list in the settings screen, the readme FAQ, the readme feature list and `README.md` to: `collection.succeeded`, `collection.failed`, `collection.underpaid`, `checkout.expired`, `refund.paid`, `refund.failed`.
-- Regenerate `languages/payment-gateway-for-bachs-for-woocommerce.pot`. It dates from 2026-07-16 and is missing the new strings.
-- Run `./build-wporg.sh` and fix anything Plugin Check reports.
+- Run `./build-wporg.sh` and fix anything Plugin Check reports. It hasn't been run for 1.1.0: Pressship isn't installed on the development machine, and the script won't download it (`npx --no-install`).
+- Test a full payment, an expired checkout and a refund in the Bachs sandbox. wiggledoo.com has no sandbox keys.
+- After releasing, check the wiggledoo.com Bachs webhook endpoint is still subscribed to `checkout.expired`, `collection.underpaid` and `refund.failed`. It was subscribed to every event on 2026-09-19.
 
 ### Later
 
 - Consider replacing per-order Bachs products with a raw `pricing` object on the checkout session. This saves one or two API calls per payment and stops the Bachs catalog filling with one product per order. Check first in the sandbox how the hosted page looks without a product name.
 - Make the Webhook URL setting display-only. It's currently saved as an option, so it goes out of date if the site URL changes.
-- Log Bachs `error_code` and the `x-request-id` response header in `PGBW_API::make_request()`.
 - Make the Checkout block icon respect `pgbw_gateway_icon_url`.

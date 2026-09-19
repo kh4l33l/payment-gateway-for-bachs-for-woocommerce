@@ -3,8 +3,8 @@ Contributors: ibrahimkh4l33l
 Donate link: https://ibrahim.ng
 Tags: woocommerce, payment gateway, bachs, payments, checkout
 Requires at least: 6.2
-Tested up to: 7.0
-Stable tag: 1.0.0
+Tested up to: 7.1
+Stable tag: 1.1.0
 Requires PHP: 7.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -23,7 +23,7 @@ Payment Gateway for Bachs for WooCommerce lets your store accept payments throug
 * **Multiple payment methods** — cards, bank transfer, mobile money, and crypto stablecoins (USDT, USDC), all handled on the Bachs checkout.
 * **Sell in USD or NGN, get paid across Africa** — price your store in USD or NGN and, with Bachs Adaptive Pricing enabled, customers can pay in their own local currency (NGN, GHS, KES, UGX, TZS, XAF, XOF, ZMW, RWF and more). Bachs settles to you in USD or NGN.
 * **Webhook-verified fulfilment** — orders complete on the `collection.succeeded` event, with signature verification, not on the browser redirect.
-* **Failed and abandoned handling** — orders are marked failed or cancelled automatically.
+* **Failed, expired and short payments** — failed payments mark the order failed, short payments put it on hold for you to review, and customers whose checkout expired can pay again or cancel from the order payment page.
 * **Refunds** — issue a refund straight from the WooCommerce order screen.
 * **Sandbox mode** — build and test against the Bachs sandbox before going live.
 * **WooCommerce Blocks** — works with both the classic and block-based checkout.
@@ -54,7 +54,7 @@ Set your WooCommerce store currency to USD or NGN — these are the currencies B
 
 = Do I need to configure webhooks? =
 
-Yes. Fulfilment relies on webhooks. Add the Webhook URL from the plugin settings to your Bachs developer portal, subscribe to `collection.succeeded`, `collection.failed`, `collection.abandoned` and `refund.paid`, and paste the signing secret into the plugin.
+Yes. Fulfilment relies on webhooks. Add the Webhook URL from the plugin settings to your Bachs developer portal, subscribe to `collection.succeeded`, `collection.failed`, `collection.underpaid`, `checkout.expired`, `refund.paid` and `refund.failed`, and paste the signing secret into the plugin.
 
 = Redirect or popup? =
 
@@ -70,7 +70,7 @@ Yes, from the WooCommerce order screen. Note that Bachs allows a single refund p
 
 = Does it support subscriptions? =
 
-Not in this version. This release covers one-time payments, refunds, and failed/abandoned handling.
+Not in this version. This release covers one-time payments and refunds.
 
 == Screenshots ==
 
@@ -80,10 +80,26 @@ Not in this version. This release covers one-time payments, refunds, and failed/
 
 == Changelog ==
 
+= 1.1.0 =
+* Fix: customers can pay again for an unpaid order. A second payment attempt no longer fails with a "Duplicate reference" error, and an open Bachs checkout is reused.
+* Fix: the order payment page now shows a "Cancel order & restore cart" link.
+* Fix: the popup takes customers back to the order payment page to start again when their checkout expires, and shows an error if the checkout can't open.
+* Fix: the Bachs icon no longer shows at full size on the classic checkout, and now appears before the payment method title.
+* Fix: refund order notes now show the Bachs refund ID.
+* New: handles the `checkout.expired` event, which replaces `collection.abandoned` (removed by Bachs). An expired checkout adds an order note and leaves the order pending so the customer can pay again.
+* New: short payments (`collection.underpaid`) put the order on hold with the amount paid and outstanding.
+* New: failed refunds (`refund.failed`) add an order note so you know the customer wasn't refunded.
+* New: webhooks are verified with the `X-Bachs-Signature-V2` header when present, so rotating the signing secret doesn't interrupt deliveries.
+* New: checkout sessions are created with an idempotency key, and API errors in the log include the Bachs error code and request ID.
+* Tested with WordPress 7.1 and WooCommerce 11.1.
+
 = 1.0.0 =
 * Initial release: hosted-checkout one-time payments, refunds, failed/abandoned handling, WooCommerce Blocks support, and HPOS compatibility.
 
 == Upgrade Notice ==
+
+= 1.1.0 =
+Bachs removed the collection.abandoned webhook event. In your Bachs developer portal, subscribe your webhook endpoint to checkout.expired, collection.underpaid and refund.failed.
 
 = 1.0.0 =
 Initial release.

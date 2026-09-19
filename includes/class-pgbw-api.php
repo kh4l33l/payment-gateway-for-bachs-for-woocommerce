@@ -29,6 +29,20 @@ class PGBW_API {
 	public $last_response_code = 0;
 
 	/**
+	 * Bachs error_code from the last failed request (for example IDEMPOTENCY_CONFLICT).
+	 *
+	 * @var string
+	 */
+	public $last_error_code = '';
+
+	/**
+	 * Unescaped error detail from the last failed request.
+	 *
+	 * @var string
+	 */
+	public $last_error_detail = '';
+
+	/**
 	 * @param string $api_key Bachs API key.
 	 * @param string $api_url Environment base URL (no version suffix).
 	 *
@@ -56,6 +70,9 @@ class PGBW_API {
 	 * @throws Exception On transport errors or a >= 400 response.
 	 */
 	public function make_request( $endpoint, $body = array(), $headers = array(), $method = 'POST' ) {
+
+		$this->last_error_code   = '';
+		$this->last_error_detail = '';
 
 		$headers = wp_parse_args(
 			$headers,
@@ -94,8 +111,21 @@ class PGBW_API {
 		$decoded = json_decode( wp_remote_retrieve_body( $response ) );
 
 		if ( $this->last_response_code >= 400 ) {
-			$message = isset( $decoded->detail ) ? $decoded->detail : wp_remote_retrieve_body( $response );
-			throw new Exception( sprintf( 'Bachs API error (%d): %s', (int) $this->last_response_code, esc_html( $message ) ) );
+			$this->last_error_code   = isset( $decoded->error_code ) ? (string) $decoded->error_code : '';
+			$this->last_error_detail = isset( $decoded->detail ) ? (string) $decoded->detail : wp_remote_retrieve_body( $response );
+
+			// Bachs support asks for the x-request-id, so keep it in the message that gets logged.
+			$request_id = wp_remote_retrieve_header( $response, 'x-request-id' );
+
+			throw new Exception(
+				sprintf(
+					'Bachs API error (%d%s): %s%s',
+					(int) $this->last_response_code,
+					'' !== $this->last_error_code ? ', ' . esc_html( $this->last_error_code ) : '',
+					esc_html( $this->last_error_detail ),
+					$request_id ? ' [request ' . esc_html( $request_id ) . ']' : ''
+				)
+			);
 		}
 
 		return $decoded;

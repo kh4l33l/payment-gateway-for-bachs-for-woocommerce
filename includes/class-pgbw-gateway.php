@@ -246,8 +246,10 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 		return array(
 			'collection.succeeded' => 'handle_collection_succeeded',
 			'collection.failed'    => 'handle_collection_failed',
-			'collection.abandoned' => 'handle_collection_abandoned',
+			'collection.underpaid' => 'handle_collection_underpaid',
+			'checkout.expired'     => 'handle_checkout_expired',
 			'refund.paid'          => 'handle_refund_paid',
+			'refund.failed'        => 'handle_refund_failed',
 		);
 	}
 
@@ -282,28 +284,18 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 			$product_id = PGBW_Helpers::get_or_create_product( $order );
 			$attempts   = $this->get_checkout_attempts( $order );
 
-			$args = apply_filters(
-				'pgbw_create_checkout_session_args',
-				array(
-					'product_cart' => array(
-						array(
-							'product_id' => $product_id,
-							'quantity'   => 1,
-						),
-					),
-					'customer'     => $this->get_customer_payload( $order ),
-					'success_url'  => $this->get_return_url( $order ),
-					'cancel_url'   => $order->get_checkout_payment_url( false ),
-					'reference'    => $this->get_checkout_reference( $order, $attempts + 1 ),
-					'metadata'     => array(
-						'order_id'  => (string) $order->get_id(),
-						'order_key' => $order->get_order_key(),
-					),
-				),
-				$order
-			);
-
-			$response = PGBW_API::get_client()->make_request( 'checkout-sessions', $args );
+			try {
+				$response = $this->create_checkout_session( $order, $product_id, $attempts + 1 );
+			} catch ( Exception $e ) {
+				if ( ! $this->is_reference_conflict() ) {
+					throw $e;
+				}
+				// A session already holds this reference (for example, one created by a request
+				// that timed out). Move on to the next reference once rather than failing.
+				$this->log( sprintf( 'Reference conflict for order #%d, retrying with a new reference: %s', $order_id, $e->getMessage() ), 'warning' );
+				++$attempts;
+				$response = $this->create_checkout_session( $order, $product_id, $attempts + 1 );
+			}
 
 			if ( ! isset( $response->checkout_url ) ) {
 				throw new Exception( sprintf( 'Unexpected response when creating Bachs checkout session: %s', wp_json_encode( $response ) ) );
@@ -328,6 +320,65 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 
 			return array( 'result' => 'failure' );
 		}
+	}
+
+	/**
+	 * Create a Bachs checkout session for the order.
+	 *
+	 * The reference doubles as the Idempotency-Key, so if a request times out after Bachs
+	 * created the session, the next identical request returns that session instead of failing.
+	 *
+	 * @param WC_Order $order
+	 * @param string   $product_id
+	 * @param int      $attempt 1-based session number.
+	 * @return object API response.
+	 *
+	 * @throws Exception On an API error.
+	 */
+	protected function create_checkout_session( $order, $product_id, $attempt ) {
+
+		$reference = $this->get_checkout_reference( $order, $attempt );
+
+		$args = apply_filters(
+			'pgbw_create_checkout_session_args',
+			array(
+				'product_cart' => array(
+					array(
+						'product_id' => $product_id,
+						'quantity'   => 1,
+					),
+				),
+				'customer'     => $this->get_customer_payload( $order ),
+				'success_url'  => $this->get_return_url( $order ),
+				'cancel_url'   => $order->get_checkout_payment_url( false ),
+				'reference'    => $reference,
+				'metadata'     => array(
+					'order_id'  => (string) $order->get_id(),
+					'order_key' => $order->get_order_key(),
+				),
+			),
+			$order
+		);
+
+		// Key on the reference actually sent, in case the filter changed it.
+		$key = 'pgbw-checkout-' . ( isset( $args['reference'] ) ? $args['reference'] : $reference );
+
+		return PGBW_API::get_client()->make_request( 'checkout-sessions', $args, array( 'Idempotency-Key' => $key ) );
+	}
+
+	/**
+	 * Whether the last API error means the checkout reference is already taken.
+	 *
+	 * Bachs answers "Duplicate reference" when a session already uses the reference, and
+	 * IDEMPOTENCY_CONFLICT when the key was used with a different body (for example, after
+	 * the customer changed their billing details).
+	 *
+	 * @return bool
+	 */
+	protected function is_reference_conflict() {
+		$client = PGBW_API::get_client();
+
+		return 'IDEMPOTENCY_CONFLICT' === $client->last_error_code || false !== stripos( $client->last_error_detail, 'duplicate reference' );
 	}
 
 	/**
@@ -524,7 +575,7 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 
 			$response = PGBW_API::get_client()->make_request( 'refunds', $payload );
 
-			$refund_id = isset( $response->id ) ? $response->id : '';
+			$refund_id = isset( $response->refund_id ) ? $response->refund_id : '';
 
 			$order->add_order_note(
 				sprintf(
@@ -556,8 +607,16 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 		$raw_body  = file_get_contents( 'php://input' );
 		$timestamp = isset( $_SERVER['HTTP_X_BACHS_TIMESTAMP'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_BACHS_TIMESTAMP'] ) ) : '';
 		$signature = isset( $_SERVER['HTTP_X_BACHS_SIGNATURE'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_BACHS_SIGNATURE'] ) ) : '';
+		$sig_v2    = isset( $_SERVER['HTTP_X_BACHS_SIGNATURE_V2'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_BACHS_SIGNATURE_V2'] ) ) : '';
+		$secret    = PGBW_Helpers::get_webhook_secret();
 
-		if ( empty( $raw_body ) || ! PGBW_Helpers::verify_webhook_signature( $raw_body, $timestamp, $signature, PGBW_Helpers::get_webhook_secret() ) ) {
+		// Prefer V2, which carries every valid signature during a secret rotation.
+		$verified = ! empty( $raw_body ) && (
+			PGBW_Helpers::verify_webhook_signature_v2( $raw_body, $sig_v2, $secret ) ||
+			PGBW_Helpers::verify_webhook_signature( $raw_body, $timestamp, $signature, $secret )
+		);
+
+		if ( ! $verified ) {
 			status_header( 400 );
 			exit;
 		}
@@ -633,20 +692,69 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 	}
 
 	/**
+	 * The customer paid less than the order total: hold the order for the merchant to decide.
+	 *
+	 * Not skipped for replaced sessions, because money was received either way.
+	 *
 	 * @param object $data
 	 */
-	protected function handle_collection_abandoned( $data ) {
+	protected function handle_collection_underpaid( $data ) {
 
 		$order = $this->resolve_order( $data );
 
-		if ( ! $order || $order->is_paid() || ! $order->has_status( array( 'pending', 'on-hold' ) ) || $this->is_stale_session_event( $order, $data ) ) {
+		if ( ! $order || $order->is_paid() ) {
 			return;
 		}
 
-		$reason = isset( $data->reason ) ? $data->reason : __( 'Checkout abandoned or expired.', 'payment-gateway-for-bachs-for-woocommerce' );
+		$charge_id = isset( $data->charge_id ) ? $data->charge_id : '';
 
-		/* translators: %s: abandonment reason */
-		$order->update_status( 'cancelled', sprintf( __( 'Bachs checkout abandoned: %s', 'payment-gateway-for-bachs-for-woocommerce' ), $reason ) );
+		// Store the charge so the merchant can refund the partial payment from WooCommerce.
+		if ( ! empty( $charge_id ) ) {
+			$order->update_meta_data( self::CHARGE_ID_META_KEY, $charge_id );
+			$order->set_transaction_id( $charge_id );
+		}
+
+		$currency = isset( $data->currency ) ? $data->currency : '';
+
+		$order->update_status(
+			'on-hold',
+			sprintf(
+				/* translators: 1: amount paid, 2: amount due, 3: amount outstanding, 4: currency code, 5: Bachs charge ID */
+				__( 'Bachs payment was short. Paid %1$s of %2$s %4$s, leaving %3$s %4$s outstanding. Charge ID: %5$s. Collect the balance or refund the payment before fulfilling this order.', 'payment-gateway-for-bachs-for-woocommerce' ),
+				isset( $data->amount_paid ) ? $data->amount_paid : '?',
+				isset( $data->amount_expected ) ? $data->amount_expected : '?',
+				isset( $data->amount_remaining ) ? $data->amount_remaining : '?',
+				$currency,
+				! empty( $charge_id ) ? $charge_id : __( 'n/a', 'payment-gateway-for-bachs-for-woocommerce' )
+			)
+		);
+
+		$this->log( sprintf( 'collection.underpaid put order #%d on hold.', $order->get_id() ) );
+	}
+
+	/**
+	 * The checkout session lapsed without payment.
+	 *
+	 * The order is left pending so the customer can still pay from the order-pay page, which
+	 * starts a new session. WooCommerce's Hold stock setting cancels unpaid orders.
+	 *
+	 * @param object $data
+	 */
+	protected function handle_checkout_expired( $data ) {
+
+		$order = $this->resolve_order( $data );
+
+		if ( ! $order || $order->is_paid() || ! $order->has_status( array( 'pending', 'failed' ) ) || $this->is_stale_session_event( $order, $data ) ) {
+			return;
+		}
+
+		$order->add_order_note(
+			sprintf(
+				/* translators: %s: Bachs checkout ID */
+				__( 'Bachs checkout session %s expired without payment. The customer can still pay from the order payment page, which starts a new session.', 'payment-gateway-for-bachs-for-woocommerce' ),
+				isset( $data->checkout_id ) ? $data->checkout_id : ''
+			)
+		);
 	}
 
 	/**
@@ -654,24 +762,12 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 	 */
 	protected function handle_refund_paid( $data ) {
 
-		$charge_id = isset( $data->charge_id ) ? $data->charge_id : '';
+		$order = $this->get_order_by_charge( $data );
 
-		if ( empty( $charge_id ) ) {
+		if ( ! $order ) {
 			return;
 		}
 
-		$orders = wc_get_orders(
-			array(
-				'limit'          => 1,
-				'transaction_id' => $charge_id,
-			)
-		);
-
-		if ( empty( $orders ) ) {
-			return;
-		}
-
-		$order           = $orders[0];
 		$refunded_amount = isset( $data->refunded_amount ) ? $data->refunded_amount : '';
 
 		$order->add_order_note(
@@ -684,7 +780,61 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 	}
 
 	/**
-	 * Resolve the WooCommerce order behind a collection.* event.
+	 * Bachs couldn't deliver the refund, but WooCommerce already recorded it. Tell the merchant.
+	 *
+	 * @param object $data
+	 */
+	protected function handle_refund_failed( $data ) {
+
+		$order = $this->get_order_by_charge( $data );
+
+		if ( ! $order ) {
+			return;
+		}
+
+		$order->add_order_note(
+			sprintf(
+				/* translators: 1: Bachs refund ID, 2: requested amount, 3: failure reason */
+				__( 'Bachs refund %1$s for %2$s failed, so the customer has not been refunded, although this order still shows the refund. Reason: %3$s. Delete the refund from this order and refund again, or refund the customer another way.', 'payment-gateway-for-bachs-for-woocommerce' ),
+				isset( $data->refund_id ) ? $data->refund_id : '',
+				isset( $data->requested_amount ) ? $data->requested_amount : __( 'n/a', 'payment-gateway-for-bachs-for-woocommerce' ),
+				! empty( $data->reason ) ? $data->reason : __( 'not given', 'payment-gateway-for-bachs-for-woocommerce' )
+			)
+		);
+
+		$this->log( sprintf( 'refund.failed for order #%d (refund %s).', $order->get_id(), isset( $data->refund_id ) ? $data->refund_id : '' ), 'error' );
+	}
+
+	/**
+	 * Find the Bachs order behind a refund.* event by its charge ID (the order transaction ID).
+	 *
+	 * @param object $data Event data.
+	 * @return WC_Order|null
+	 */
+	protected function get_order_by_charge( $data ) {
+
+		$charge_id = isset( $data->charge_id ) ? $data->charge_id : '';
+
+		if ( empty( $charge_id ) ) {
+			return null;
+		}
+
+		$orders = wc_get_orders(
+			array(
+				'limit'          => 1,
+				'transaction_id' => $charge_id,
+			)
+		);
+
+		if ( empty( $orders ) || $orders[0]->get_payment_method() !== $this->id ) {
+			return null;
+		}
+
+		return $orders[0];
+	}
+
+	/**
+	 * Resolve the WooCommerce order behind a collection.* or checkout.* event.
 	 *
 	 * @param object $data Event data.
 	 * @return WC_Order|null

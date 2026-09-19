@@ -3,7 +3,7 @@
  * Plugin Name: Payment Gateway for Bachs for WooCommerce
  * Plugin URI: https://ibrahim.ng/payment-gateway-for-bachs-for-woocommerce
  * Description: Accept card, bank transfer, mobile money and crypto payments on your WooCommerce store with Bachs hosted checkout.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: Ibrahim Nasir
  * Author URI: https://ibrahim.ng
  * License: GPL-2.0+
@@ -12,7 +12,7 @@
  * Requires at least: 6.2
  * Requires PHP: 7.4
  * WC requires at least: 8.0
- * WC tested up to: 10.9
+ * WC tested up to: 11.1
  * Text Domain: payment-gateway-for-bachs-for-woocommerce
  * Domain Path: /languages
  */
@@ -24,7 +24,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 define( 'PGBW_MAIN_FILE', __FILE__ );
 define( 'PGBW_URL', untrailingslashit( plugins_url( '/', __FILE__ ) ) );
 define( 'PGBW_PATH', untrailingslashit( plugin_dir_path( __FILE__ ) ) );
-define( 'PGBW_VERSION', '1.0.0' );
+define( 'PGBW_VERSION', '1.1.0' );
 
 /**
  * Bootstrap the gateway once all plugins are loaded.

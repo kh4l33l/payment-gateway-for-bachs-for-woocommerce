@@ -151,6 +151,51 @@ class PGBW_Helpers {
 	}
 
 	/**
+	 * Verify a Bachs X-Bachs-Signature-V2 header: "t={timestamp},v1={signature}[,v1=...]".
+	 *
+	 * It carries the same digest as X-Bachs-Signature, plus one v1 entry per valid secret
+	 * while a signing secret is being rotated, so any matching v1 is accepted.
+	 *
+	 * @param string $raw_body
+	 * @param string $header
+	 * @param string $secret
+	 * @return bool
+	 */
+	public static function verify_webhook_signature_v2( $raw_body, $header, $secret ) {
+
+		if ( empty( $secret ) || empty( $header ) ) {
+			return false;
+		}
+
+		$timestamp  = '';
+		$signatures = array();
+
+		foreach ( explode( ',', $header ) as $part ) {
+			$pair = explode( '=', trim( $part ), 2 );
+			if ( 2 !== count( $pair ) ) {
+				continue;
+			}
+			if ( 't' === $pair[0] ) {
+				$timestamp = $pair[1];
+			} elseif ( 'v1' === $pair[0] ) {
+				$signatures[] = $pair[1];
+			}
+		}
+
+		if ( empty( $signatures ) ) {
+			return false;
+		}
+
+		foreach ( $signatures as $signature ) {
+			if ( self::verify_webhook_signature( $raw_body, $timestamp, $signature, $secret ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
 	 * Get (or create + cache) a fixed-price Bachs product matching this order's total.
 	 *
 	 * A Bachs checkout session must reference real product IDs, so a fixed-price product
