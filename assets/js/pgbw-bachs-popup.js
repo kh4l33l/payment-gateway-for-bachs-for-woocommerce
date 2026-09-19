@@ -60,7 +60,9 @@
 				setStatus( params.i18n.failed );
 				break;
 			case 'checkout.expired':
+				// The stored session can't be reopened; the order-pay form creates a new one.
 				setStatus( params.i18n.expired );
+				window.location.href = params.retry_url;
 				break;
 			case 'checkout.error':
 				log( 'checkout.error', event.data && event.data.message );

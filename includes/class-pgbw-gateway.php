@@ -22,6 +22,16 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 	const CHECKOUT_URL_META_KEY = '_pgbw_checkout_url';
 
 	/**
+	 * Order-meta key for the number of checkout sessions created for the order.
+	 */
+	const CHECKOUT_ATTEMPTS_META_KEY = '_pgbw_checkout_attempts';
+
+	/**
+	 * Don't reuse an open session that expires within this many seconds.
+	 */
+	const SESSION_REUSE_MARGIN = 300;
+
+	/**
 	 * @var bool
 	 */
 	public $testmode;
@@ -68,6 +78,7 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 		add_action( 'woocommerce_receipt_' . $this->id, array( $this, 'receipt_page' ) );
 		add_action( 'wp_enqueue_scripts', array( $this, 'payment_scripts' ) );
 		add_action( 'wp_enqueue_scripts', array( $this, 'checkout_styles' ) );
+		add_action( 'woocommerce_pay_order_after_submit', array( $this, 'pay_order_cancel_link' ) );
 
 		if ( ! $this->is_valid_for_use() ) {
 			$this->enabled = 'no';
@@ -261,7 +272,15 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 				throw new Exception( sprintf( __( 'Bachs does not support the %s currency.', 'payment-gateway-for-bachs-for-woocommerce' ), $order->get_currency() ) );
 			}
 
+			$session = $this->get_open_session( $order );
+
+			if ( $session ) {
+				$this->log( sprintf( 'Reusing open checkout session %s for order #%d.', $session->checkout_id, $order_id ) );
+				return $this->payment_redirect( $order, $session->checkout_url );
+			}
+
 			$product_id = PGBW_Helpers::get_or_create_product( $order );
+			$attempts   = $this->get_checkout_attempts( $order );
 
 			$args = apply_filters(
 				'pgbw_create_checkout_session_args',
@@ -275,7 +294,7 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 					'customer'     => $this->get_customer_payload( $order ),
 					'success_url'  => $this->get_return_url( $order ),
 					'cancel_url'   => $order->get_checkout_payment_url( false ),
-					'reference'    => $order->get_order_key(),
+					'reference'    => $this->get_checkout_reference( $order, $attempts + 1 ),
 					'metadata'     => array(
 						'order_id'  => (string) $order->get_id(),
 						'order_key' => $order->get_order_key(),
@@ -294,23 +313,12 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 				$order->update_meta_data( PGBW_Helpers::CHECKOUT_ID_META_KEY, $response->checkout_id );
 			}
 
-			$is_popup = 'popup' === $this->checkout_type;
-
-			if ( $is_popup ) {
-				$order->update_meta_data( self::CHECKOUT_URL_META_KEY, $response->checkout_url );
-			}
-
-			$order->update_status( 'pending', __( 'Awaiting Bachs payment.', 'payment-gateway-for-bachs-for-woocommerce' ) );
-			$order->save();
+			$order->update_meta_data( self::CHECKOUT_URL_META_KEY, $response->checkout_url );
+			$order->update_meta_data( self::CHECKOUT_ATTEMPTS_META_KEY, $attempts + 1 );
 
 			$this->log( sprintf( 'Checkout session created for order #%d (%s).', $order_id, $this->checkout_type ) );
 
-			// Popup: land on the on-site order-pay page, where bachs.js opens the checkout in a modal.
-			// Redirect: send the customer straight to the hosted checkout URL.
-			return array(
-				'result'   => 'success',
-				'redirect' => $is_popup ? $order->get_checkout_payment_url( true ) : $response->checkout_url,
-			);
+			return $this->payment_redirect( $order, $response->checkout_url );
 
 		} catch ( Exception $e ) {
 
@@ -320,6 +328,120 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 
 			return array( 'result' => 'failure' );
 		}
+	}
+
+	/**
+	 * Mark the order as awaiting payment and send the customer to the checkout.
+	 *
+	 * Popup: land on the on-site order-pay page, where bachs.js opens the checkout in a modal.
+	 * Redirect: send the customer straight to the hosted checkout URL.
+	 *
+	 * @param WC_Order $order
+	 * @param string   $checkout_url
+	 * @return array
+	 */
+	protected function payment_redirect( $order, $checkout_url ) {
+
+		$is_popup = 'popup' === $this->checkout_type;
+
+		$order->update_status( 'pending', __( 'Awaiting Bachs payment.', 'payment-gateway-for-bachs-for-woocommerce' ) );
+		$order->save();
+
+		return array(
+			'result'   => 'success',
+			'redirect' => $is_popup ? $order->get_checkout_payment_url( true ) : $checkout_url,
+		);
+	}
+
+	/**
+	 * The order's current Bachs checkout session, if the customer can still pay on it.
+	 *
+	 * Bachs rejects a second session with the same reference, so a customer who comes back to
+	 * pay (from the order-pay page or the Bachs cancel URL) is sent to their open session.
+	 *
+	 * @param WC_Order $order
+	 * @return object|null Session with checkout_id and checkout_url, or null.
+	 */
+	protected function get_open_session( $order ) {
+
+		$checkout_id = $order->get_meta( PGBW_Helpers::CHECKOUT_ID_META_KEY );
+
+		if ( empty( $checkout_id ) ) {
+			return null;
+		}
+
+		try {
+			$session = PGBW_API::get_client()->make_request( 'checkout-sessions/' . rawurlencode( $checkout_id ), array(), array(), 'GET' );
+		} catch ( Exception $e ) {
+			$this->log( sprintf( 'Could not retrieve checkout session %s for order #%d: %s', $checkout_id, $order->get_id(), $e->getMessage() ), 'warning' );
+			return null;
+		}
+
+		if ( ! is_object( $session ) || ! isset( $session->status ) || 'open' !== $session->status ) {
+			return null;
+		}
+
+		if ( ! empty( $session->expires_at ) ) {
+			$expires = strtotime( $session->expires_at );
+			if ( $expires && $expires - time() < self::SESSION_REUSE_MARGIN ) {
+				return null;
+			}
+		}
+
+		$checkout_url = ! empty( $session->checkout_url ) ? $session->checkout_url : $order->get_meta( self::CHECKOUT_URL_META_KEY );
+
+		if ( empty( $checkout_url ) ) {
+			return null;
+		}
+
+		return (object) array(
+			'checkout_id'  => $checkout_id,
+			'checkout_url' => $checkout_url,
+		);
+	}
+
+	/**
+	 * Number of checkout sessions already created for the order.
+	 *
+	 * @param WC_Order $order
+	 * @return int
+	 */
+	protected function get_checkout_attempts( $order ) {
+
+		$attempts = absint( $order->get_meta( self::CHECKOUT_ATTEMPTS_META_KEY ) );
+
+		// Orders from before the counter was stored have had one session if a checkout ID is set.
+		if ( ! $attempts && $order->get_meta( PGBW_Helpers::CHECKOUT_ID_META_KEY ) ) {
+			$attempts = 1;
+		}
+
+		return $attempts;
+	}
+
+	/**
+	 * Bachs reference for a checkout session. References must be unique, so sessions after the
+	 * first add the attempt number to the order key (wc_order_abc123-2).
+	 *
+	 * @param WC_Order $order
+	 * @param int      $attempt 1-based session number.
+	 * @return string
+	 */
+	protected function get_checkout_reference( $order, $attempt ) {
+		return $attempt > 1 ? $order->get_order_key() . '-' . $attempt : $order->get_order_key();
+	}
+
+	/**
+	 * Whether a collection event belongs to a session the order has since replaced.
+	 *
+	 * @param WC_Order $order
+	 * @param object   $data Event data.
+	 * @return bool
+	 */
+	protected function is_stale_session_event( $order, $data ) {
+
+		$current = $order->get_meta( PGBW_Helpers::CHECKOUT_ID_META_KEY );
+
+		return ! empty( $data->checkout_id ) && ! empty( $current ) && $data->checkout_id !== $current;
 	}
 
 	/**
@@ -500,7 +622,7 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 
 		$order = $this->resolve_order( $data );
 
-		if ( ! $order || $order->is_paid() ) {
+		if ( ! $order || $order->is_paid() || $this->is_stale_session_event( $order, $data ) ) {
 			return;
 		}
 
@@ -517,7 +639,7 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 
 		$order = $this->resolve_order( $data );
 
-		if ( ! $order || $order->is_paid() || ! $order->has_status( array( 'pending', 'on-hold' ) ) ) {
+		if ( ! $order || $order->is_paid() || ! $order->has_status( array( 'pending', 'on-hold' ) ) || $this->is_stale_session_event( $order, $data ) ) {
 			return;
 		}
 
@@ -576,7 +698,7 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 		}
 
 		if ( ! $order && ! empty( $data->reference ) ) {
-			$order_id = wc_get_order_id_by_order_key( $data->reference );
+			$order_id = wc_get_order_id_by_order_key( preg_replace( '/-\d+$/', '', $data->reference ) );
 			if ( $order_id ) {
 				$order = wc_get_order( $order_id );
 			}
@@ -653,6 +775,26 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 	}
 
 	/**
+	 * Add the cancel link to the order-pay form, which WooCommerce doesn't show there.
+	 *
+	 * Customers land on this form when they cancel on the Bachs checkout or come back to pay
+	 * later, so without it they can't cancel the order and restore their cart.
+	 */
+	public function pay_order_cancel_link() {
+
+		global $wp;
+
+		$order_id = isset( $wp->query_vars['order-pay'] ) ? absint( $wp->query_vars['order-pay'] ) : 0;
+		$order    = $order_id ? wc_get_order( $order_id ) : false;
+
+		if ( ! $order || $order->get_payment_method() !== $this->id || ! $order->has_status( apply_filters( 'woocommerce_valid_order_statuses_for_cancel', array( 'pending', 'failed' ), $order ) ) ) {
+			return;
+		}
+
+		echo '<p class="pgbw-cancel-order"><a class="pgbw-cancel" href="' . esc_url( $order->get_cancel_order_url() ) . '">' . esc_html__( 'Cancel order &amp; restore cart', 'payment-gateway-for-bachs-for-woocommerce' ) . '</a></p>';
+	}
+
+	/**
 	 * Show the gateway icon before the title on the classic checkout.
 	 *
 	 * The core payment-method.php template prints the title and then the icon, so
@@ -712,11 +854,12 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 				'checkout_url' => $checkout_url,
 				'return_url'   => $this->get_return_url( $order ),
 				'cancel_url'   => $order->get_cancel_order_url(),
+				'retry_url'    => $order->get_checkout_payment_url( false ),
 				'debug'        => $this->debug ? '1' : '0',
 				'i18n'         => array(
 					'closed'  => __( 'Checkout closed. Click "Pay with Bachs" to try again.', 'payment-gateway-for-bachs-for-woocommerce' ),
 					'failed'  => __( 'The payment failed. Click "Pay with Bachs" to try again.', 'payment-gateway-for-bachs-for-woocommerce' ),
-					'expired' => __( 'This checkout session expired. Please cancel and start over.', 'payment-gateway-for-bachs-for-woocommerce' ),
+					'expired' => __( 'This checkout session expired. Taking you back to start a new one…', 'payment-gateway-for-bachs-for-woocommerce' ),
 					'blocked' => __( 'The Bachs checkout could not load. Please disable any ad/script blocker for this page and try again.', 'payment-gateway-for-bachs-for-woocommerce' ),
 					'error'   => __( 'Something went wrong opening the checkout. Please try again, or cancel to start over.', 'payment-gateway-for-bachs-for-woocommerce' ),
 				),
