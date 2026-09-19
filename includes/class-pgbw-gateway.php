@@ -128,6 +128,7 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 			);
 		}
 
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Core WooCommerce filter, applied as WC_Payment_Gateway::get_icon() does.
 		return apply_filters( 'woocommerce_gateway_icon', $icon, $this->id );
 	}
 
@@ -937,7 +938,14 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 		$order_id = isset( $wp->query_vars['order-pay'] ) ? absint( $wp->query_vars['order-pay'] ) : 0;
 		$order    = $order_id ? wc_get_order( $order_id ) : false;
 
-		if ( ! $order || $order->get_payment_method() !== $this->id || ! $order->has_status( apply_filters( 'woocommerce_valid_order_statuses_for_cancel', array( 'pending', 'failed' ), $order ) ) ) {
+		if ( ! $order || $order->get_payment_method() !== $this->id ) {
+			return;
+		}
+
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Core WooCommerce filter, so the link shows exactly when WooCommerce allows cancelling.
+		$cancel_statuses = apply_filters( 'woocommerce_valid_order_statuses_for_cancel', array( 'pending', 'failed' ), $order );
+
+		if ( ! $order->has_status( $cancel_statuses ) ) {
 			return;
 		}
 

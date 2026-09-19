@@ -162,7 +162,7 @@ The 2026-09-19 review found three fixes needed before release and four should-fi
 
 ### Before releasing 1.1.0
 
-- Run `./build-wporg.sh` and fix anything Plugin Check reports. It hasn't been run for 1.1.0: Pressship isn't installed on the development machine, and the script won't download it (`npx --no-install`).
+- Plugin Check and readme validation passed on 2026-09-19 (`npx pressship@0.2.2 verify .`).
 - Test a full payment, an expired checkout and a refund in the Bachs sandbox. wiggledoo.com has no sandbox keys.
 - After releasing, check the wiggledoo.com Bachs webhook endpoint is still subscribed to `checkout.expired`, `collection.underpaid` and `refund.failed`. It was subscribed to every event on 2026-09-19.
 
