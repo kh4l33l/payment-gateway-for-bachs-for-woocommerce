@@ -160,11 +160,11 @@ wiggledoo.com has no Bachs sandbox keys, so live-site checks are read-only.
 
 The 2026-09-19 review found three fixes needed before release and four should-fix items. All are done in 1.1.0: `checkout.expired`, `collection.underpaid` and `refund.failed` handling, the refund ID fix, the checkout session idempotency key, V2 signatures and the popup `open()` rejection.
 
-### Before releasing 1.1.0
+### Released
 
-- Plugin Check and readme validation passed on 2026-09-19 (`npx pressship@0.2.2 verify .`).
-- Test a full payment, an expired checkout and a refund in the Bachs sandbox. wiggledoo.com has no sandbox keys.
-- After releasing, check the wiggledoo.com Bachs webhook endpoint is still subscribed to `checkout.expired`, `collection.underpaid` and `refund.failed`. It was subscribed to every event on 2026-09-19.
+1.1.0 was released to WordPress.org on 2026-09-19 (SVN r3703239, git tag `v1.1.0`) and deployed to wiggledoo.com the same day. It was tested there without a sandbox: checkout rendering, the cancel link, session reuse and both webhook signature headers. No payment has gone through a checkout session created by 1.1.0 yet, so watch the first live payment.
+
+SVN releases are done by hand: check out the repo, sync the Pressship package into `trunk/` and `.wordpress-org/` into `assets/`, `svn cp trunk tags/{version}`, then commit. `svn` is installed with Homebrew.
 
 ### Later
 
