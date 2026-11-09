@@ -4,7 +4,7 @@ Donate link: https://ibrahim.ng
 Tags: woocommerce, payment gateway, bachs, payments, checkout
 Requires at least: 6.2
 Tested up to: 7.1
-Stable tag: 1.1.0
+Stable tag: 1.2.0
 Requires PHP: 7.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -80,6 +80,11 @@ Not in this version. This release covers one-time payments and refunds.
 
 == Changelog ==
 
+= 1.2.0 =
+* New: an "Order status after payment" setting chooses the status Bachs orders get when payment is confirmed. The default leaves the choice to WooCommerce, as before.
+* Fix: a paid Bachs order moved back to Pending payment no longer shows Pay and Cancel buttons. Customers can't cancel it or pay for it again, and WooCommerce's Hold stock clean-up no longer cancels it.
+* Fix: in popup mode, the order-received page no longer opens inside the Bachs checkout modal after payment. The same applies to the order payment page after a customer cancels.
+
 = 1.1.0 =
 * Fix: customers can pay again for an unpaid order. A second payment attempt no longer fails with a "Duplicate reference" error, and an open Bachs checkout is reused.
 * Fix: the order payment page now shows a "Cancel order & restore cart" link.
@@ -96,6 +101,9 @@ Not in this version. This release covers one-time payments and refunds.
 * Initial release: hosted-checkout one-time payments, refunds, failed/abandoned handling, WooCommerce Blocks support, and HPOS compatibility.
 
 == Upgrade Notice ==
+
+= 1.2.0 =
+Adds an Order status after payment setting and fixes the order-received page opening inside the Bachs popup.
 
 = 1.1.0 =
 Bachs removed the collection.abandoned webhook event. In your Bachs developer portal, subscribe your webhook endpoint to checkout.expired, collection.underpaid and refund.failed.

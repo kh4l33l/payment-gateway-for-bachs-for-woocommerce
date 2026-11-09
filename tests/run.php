@@ -38,6 +38,7 @@ function wc_add_notice() {}
 function absint( $x ) { return abs( (int) $x ); }
 function get_user_meta() { return ''; }
 function wc_price( $a ) { return (string) $a; }
+function wc_get_order_statuses() { return array( 'wc-pending' => 'Pending payment', 'wc-processing' => 'Processing', 'wc-on-hold' => 'On hold', 'wc-completed' => 'Completed', 'wc-cancelled' => 'Cancelled', 'wc-refunded' => 'Refunded', 'wc-failed' => 'Failed', 'wc-checkout-draft' => 'Draft' ); }
 function wc_get_logger() { return new class { function log( $l, $m ) { $GLOBALS['logs'][] = "$l: $m"; } }; }
 function wp_remote_request( $url, $args ) {
 	$GLOBALS['http_log'][] = array( 'url' => $url, 'args' => $args );
@@ -58,8 +59,10 @@ class WC_Payment_Gateway {
 	function get_title() { return 'Bachs'; }
 }
 
-class Fake_Order {
-	public $meta = array(), $notes = array(), $status = 'pending', $txn = '', $saved = 0;
+class WC_Order {}
+
+class Fake_Order extends WC_Order {
+	public $meta = array(), $notes = array(), $status = 'pending', $txn = '', $saved = 0, $date_paid = null;
 	function __construct( public $id, public $key, public $method = 'pgbw_bachs' ) {}
 	function get_id() { return $this->id; }
 	function get_order_key() { return $this->key; }
@@ -80,7 +83,8 @@ class Fake_Order {
 	function add_order_note( $n ) { $this->notes[] = $n; }
 	function set_transaction_id( $t ) { $this->txn = $t; }
 	function get_transaction_id() { return $this->txn; }
-	function payment_complete( $t ) { $this->status = 'processing'; $this->txn = $t; }
+	function payment_complete( $t ) { $this->status = 'processing'; $this->txn = $t; $this->date_paid = time(); }
+	function get_date_paid() { return $this->date_paid; }
 	function save() { $this->saved++; }
 	function get_checkout_payment_url( $on ) { return 'https://example.test/pay/' . $this->id . ( $on ? '' : '?pay_for_order=true' ); }
 }
@@ -137,6 +141,41 @@ check( 'underpaid: charge stored for refunds', 'ch_1' === $u->txn && 'ch_1' === 
 check( 'underpaid: note has amounts', false !== strpos( $u->notes[0], 'Paid 5.00 of 15.00 USD, leaving 10.00 USD' ) );
 call( $g, 'handle_collection_succeeded', (object) array( 'charge_id' => 'ch_1', 'metadata' => (object) array( 'order_id' => '51' ) ) );
 check( 'underpaid then succeeded: completes', 'processing' === $u->status );
+
+// --- Order status after payment ---
+$status_options = call( $g, 'paid_order_status_options' );
+check( 'status setting: offers on-hold and completed', isset( $status_options[''], $status_options['on-hold'], $status_options['completed'] ) );
+check( 'status setting: leaves out unpaid and reversed statuses', ! isset( $status_options['pending'] ) && ! isset( $status_options['cancelled'] ) && ! isset( $status_options['refunded'] ) && ! isset( $status_options['failed'] ) && ! isset( $status_options['checkout-draft'] ) );
+check( 'status setting: default keeps WooCommerce choice', 'processing' === $g->payment_complete_order_status( 'processing', 51, $u ) );
+$g->settings['paid_order_status'] = 'on-hold';
+check( 'status setting: applied to Bachs orders', 'on-hold' === $g->payment_complete_order_status( 'processing', 51, $u ) );
+check( 'status setting: other gateways untouched', 'processing' === $g->payment_complete_order_status( 'processing', 53, new Fake_Order( 53, 'wc_order_x', 'bacs' ) ) );
+$g->settings['paid_order_status'] = 'pending';
+check( 'status setting: saved pending value ignored', 'processing' === $g->payment_complete_order_status( 'processing', 51, $u ) );
+$g->settings['paid_order_status'] = 'removed-status';
+check( 'status setting: unregistered status ignored', 'processing' === $g->payment_complete_order_status( 'processing', 51, $u ) );
+unset( $g->settings['paid_order_status'] );
+
+// --- Paid orders left in an unpaid status ---
+$u->status = 'pending';
+check( 'paid pending order: no Pay action', false === $g->paid_order_needs_payment( true, $u ) );
+check( 'paid pending order: not cancelled by Hold stock clean-up', false === $g->paid_order_cancel_unpaid( true, $u ) );
+check( 'unpaid pending order: Hold stock clean-up still cancels', true === $g->paid_order_cancel_unpaid( true, $o ) );
+check( 'paid pending order: no Cancel action', array() === $g->paid_order_cancel_statuses( array( 'pending', 'failed' ), $u ) );
+check( 'unpaid order: Pay and Cancel kept', true === $g->paid_order_needs_payment( true, $o ) && array( 'pending' ) === $g->paid_order_cancel_statuses( array( 'pending' ), $o ) );
+$notes = count( $u->notes );
+call( $g, 'handle_collection_failed', (object) array( 'checkout_id' => 'chk_new', 'metadata' => (object) array( 'order_id' => '51' ) ) );
+call( $g, 'handle_collection_succeeded', (object) array( 'charge_id' => 'ch_1', 'metadata' => (object) array( 'order_id' => '51' ) ) );
+check( 'paid pending order: later webhooks ignored', 'pending' === $u->status && count( $u->notes ) === $notes );
+$u->status = 'processing';
+
+// --- collection.succeeded without a charge ID ---
+$n = new Fake_Order( 54, 'wc_order_nul' );
+$GLOBALS['orders'][54] = $n;
+$GLOBALS['logs'] = array();
+call( $g, 'handle_collection_succeeded', (object) array( 'charge_id' => null, 'metadata' => (object) array( 'order_id' => '54' ) ) );
+check( 'no charge ID: order still completes', 'processing' === $n->status );
+check( 'no charge ID: warning logged', (bool) preg_grep( '/^warning: .*#54 has no charge ID/', $GLOBALS['logs'] ) );
 
 // --- refund.failed / refund.paid ---
 $r = new Fake_Order( 52, 'wc_order_ghi' );

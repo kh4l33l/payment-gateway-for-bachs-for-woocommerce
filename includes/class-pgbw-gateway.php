@@ -32,6 +32,11 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 	const SESSION_REUSE_MARGIN = 300;
 
 	/**
+	 * Statuses the Order status after payment setting doesn't offer or apply.
+	 */
+	const UNPAID_STATUSES = array( 'pending', 'cancelled', 'refunded', 'failed', 'checkout-draft' );
+
+	/**
 	 * @var bool
 	 */
 	public $testmode;
@@ -78,7 +83,12 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 		add_action( 'woocommerce_receipt_' . $this->id, array( $this, 'receipt_page' ) );
 		add_action( 'wp_enqueue_scripts', array( $this, 'payment_scripts' ) );
 		add_action( 'wp_enqueue_scripts', array( $this, 'checkout_styles' ) );
+		add_action( 'wp_head', array( $this, 'popup_breakout_script' ), 1 );
 		add_action( 'woocommerce_pay_order_after_submit', array( $this, 'pay_order_cancel_link' ) );
+		add_filter( 'woocommerce_payment_complete_order_status', array( $this, 'payment_complete_order_status' ), 10, 3 );
+		add_filter( 'woocommerce_order_needs_payment', array( $this, 'paid_order_needs_payment' ), 10, 2 );
+		add_filter( 'woocommerce_valid_order_statuses_for_cancel', array( $this, 'paid_order_cancel_statuses' ), 10, 2 );
+		add_filter( 'woocommerce_cancel_unpaid_order', array( $this, 'paid_order_cancel_unpaid' ), 10, 2 );
 
 		if ( ! $this->is_valid_for_use() ) {
 			$this->enabled = 'no';
@@ -175,6 +185,14 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 					'popup'    => __( 'Popup (on-site modal)', 'payment-gateway-for-bachs-for-woocommerce' ),
 				),
 			),
+			'paid_order_status'   => array(
+				'title'       => __( 'Order status after payment', 'payment-gateway-for-bachs-for-woocommerce' ),
+				'type'        => 'select',
+				'description' => __( 'Status given to an order when Bachs confirms the payment. Customers can\'t pay for or cancel a paid order again, whatever its status.', 'payment-gateway-for-bachs-for-woocommerce' ),
+				'default'     => '',
+				'desc_tip'    => true,
+				'options'     => $this->paid_order_status_options(),
+			),
 			'testmode'            => array(
 				'title'       => __( 'Test mode', 'payment-gateway-for-bachs-for-woocommerce' ),
 				'label'       => __( 'Enable test (sandbox) mode', 'payment-gateway-for-bachs-for-woocommerce' ),
@@ -236,6 +254,32 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 				'default'     => 'no',
 			),
 		);
+	}
+
+	/**
+	 * Choices for the Order status after payment setting.
+	 *
+	 * Statuses that mean the payment didn't go through, or was reversed, are left out. So is
+	 * Pending payment: WooCommerce's Hold stock clean-up cancels pending orders, its
+	 * analytics ignore them and its order emails don't fire for them.
+	 *
+	 * @return array
+	 */
+	protected function paid_order_status_options() {
+
+		$options = array(
+			'' => __( 'WooCommerce default (Processing, or Completed for orders that need no shipping)', 'payment-gateway-for-bachs-for-woocommerce' ),
+		);
+
+		foreach ( wc_get_order_statuses() as $status => $label ) {
+			$status = 'wc-' === substr( $status, 0, 3 ) ? substr( $status, 3 ) : $status;
+
+			if ( ! in_array( $status, self::UNPAID_STATUSES, true ) ) {
+				$options[ $status ] = $label;
+			}
+		}
+
+		return $options;
 	}
 
 	/**
@@ -648,14 +692,18 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 
 		$order = $this->resolve_order( $data );
 
-		if ( ! $order || $order->is_paid() || $order->has_status( array( 'processing', 'completed', 'refunded' ) ) ) {
+		if ( ! $order || $order->is_paid() || $order->has_status( array( 'processing', 'completed', 'refunded' ) ) || $this->has_bachs_payment( $order ) ) {
 			return;
 		}
 
-		$charge_id = isset( $data->charge_id ) ? $data->charge_id : '';
+		$charge_id = isset( $data->charge_id ) ? (string) $data->charge_id : '';
 
 		if ( ! empty( $charge_id ) ) {
 			$order->update_meta_data( self::CHARGE_ID_META_KEY, $charge_id );
+		} else {
+			// Bachs sends a null charge_id for test webhooks and some reconciled payments. The
+			// order can't be refunded from WooCommerce, and has_bachs_payment() won't see it.
+			$this->log( sprintf( 'collection.succeeded for order #%d has no charge ID.', $order->get_id() ), 'warning' );
 		}
 
 		$this->maybe_store_customer_id( $order, $data );
@@ -682,7 +730,7 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 
 		$order = $this->resolve_order( $data );
 
-		if ( ! $order || $order->is_paid() || $this->is_stale_session_event( $order, $data ) ) {
+		if ( ! $order || $order->is_paid() || $this->has_bachs_payment( $order ) || $this->is_stale_session_event( $order, $data ) ) {
 			return;
 		}
 
@@ -703,7 +751,7 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 
 		$order = $this->resolve_order( $data );
 
-		if ( ! $order || $order->is_paid() ) {
+		if ( ! $order || $order->is_paid() || $this->has_bachs_payment( $order ) ) {
 			return;
 		}
 
@@ -745,7 +793,7 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 
 		$order = $this->resolve_order( $data );
 
-		if ( ! $order || $order->is_paid() || ! $order->has_status( array( 'pending', 'failed' ) ) || $this->is_stale_session_event( $order, $data ) ) {
+		if ( ! $order || $order->is_paid() || $this->has_bachs_payment( $order ) || ! $order->has_status( array( 'pending', 'failed' ) ) || $this->is_stale_session_event( $order, $data ) ) {
 			return;
 		}
 
@@ -950,6 +998,118 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 		}
 
 		echo '<p class="pgbw-cancel-order"><a class="pgbw-cancel" href="' . esc_url( $order->get_cancel_order_url() ) . '">' . esc_html__( 'Cancel order &amp; restore cart', 'payment-gateway-for-bachs-for-woocommerce' ) . '</a></p>';
+	}
+
+	/**
+	 * Apply the Order status after payment setting when Bachs completes a payment.
+	 *
+	 * @param string        $status
+	 * @param int           $order_id
+	 * @param WC_Order|null $order
+	 * @return string
+	 */
+	public function payment_complete_order_status( $status, $order_id, $order = null ) {
+
+		$paid_status = $this->get_option( 'paid_order_status', '' );
+
+		// A pending value can still be saved from a 1.2.0 pre-release, which offered it.
+		if ( '' === $paid_status || in_array( $paid_status, self::UNPAID_STATUSES, true ) || ! array_key_exists( 'wc-' . $paid_status, wc_get_order_statuses() ) ) {
+			return $status;
+		}
+
+		$order = is_a( $order, 'WC_Order' ) ? $order : wc_get_order( $order_id );
+
+		if ( ! $order || $order->get_payment_method() !== $this->id ) {
+			return $status;
+		}
+
+		return $paid_status;
+	}
+
+	/**
+	 * Whether Bachs collected the full payment for the order.
+	 *
+	 * Checked as well as is_paid(), because the merchant can choose an unpaid status such as
+	 * pending for paid orders, or move a paid order back to one.
+	 *
+	 * @param WC_Order $order
+	 * @return bool
+	 */
+	public function has_bachs_payment( $order ) {
+		return $order->get_payment_method() === $this->id
+			&& $order->get_date_paid()
+			&& '' !== (string) $order->get_meta( self::CHARGE_ID_META_KEY );
+	}
+
+	/**
+	 * Stop WooCommerce offering to take payment again for a paid Bachs order.
+	 *
+	 * This hides the Pay button on the order-received and My account pages and closes the
+	 * order-pay page.
+	 *
+	 * @param bool     $needs_payment
+	 * @param WC_Order $order
+	 * @return bool
+	 */
+	public function paid_order_needs_payment( $needs_payment, $order ) {
+		return $needs_payment && ! $this->has_bachs_payment( $order );
+	}
+
+	/**
+	 * Stop customers cancelling a paid Bachs order, which would leave the payment unrefunded.
+	 *
+	 * @param array         $statuses
+	 * @param WC_Order|null $order
+	 * @return array
+	 */
+	public function paid_order_cancel_statuses( $statuses, $order = null ) {
+		return is_a( $order, 'WC_Order' ) && $this->has_bachs_payment( $order ) ? array() : $statuses;
+	}
+
+	/**
+	 * Stop WooCommerce's Hold stock clean-up cancelling a paid Bachs order that was moved back
+	 * to Pending payment. The clean-up checks only the status, so it would cancel the order
+	 * and restock it without refunding the customer.
+	 *
+	 * @param bool     $should_cancel
+	 * @param WC_Order $order
+	 * @return bool
+	 */
+	public function paid_order_cancel_unpaid( $should_cancel, $order ) {
+		return $should_cancel && ! ( is_a( $order, 'WC_Order' ) && $this->has_bachs_payment( $order ) );
+	}
+
+	/**
+	 * Move the return pages out of the popup and into the main window.
+	 *
+	 * After payment, or when the customer cancels, the Bachs checkout follows success_url or
+	 * cancel_url inside the overlay's iframe, so the order-received page or the order-pay form
+	 * opens in the modal over the receipt page. The script only acts when the top window is our
+	 * popup receipt page, so other frames (such as the Customizer preview) are left alone.
+	 */
+	public function popup_breakout_script() {
+
+		global $wp;
+
+		if ( 'popup' !== $this->checkout_type || ! function_exists( 'is_order_received_page' ) ) {
+			return;
+		}
+
+		if ( is_order_received_page() && ! empty( $wp->query_vars['order-received'] ) ) {
+			$order_id = absint( $wp->query_vars['order-received'] );
+		} elseif ( is_checkout_pay_page() && ! empty( $wp->query_vars['order-pay'] ) ) {
+			$order_id = absint( $wp->query_vars['order-pay'] );
+		} else {
+			return;
+		}
+
+		$order = wc_get_order( $order_id );
+
+		if ( ! $order || $order->get_payment_method() !== $this->id ) {
+			return;
+		}
+
+		wp_print_inline_script_tag( "(function(){try{if(window.top!==window.self&&window.top.document.getElementById('pgbw-bachs-popup')){document.documentElement.style.visibility='hidden';window.top.location.replace(window.location.href);}}catch(e){document.documentElement.style.visibility='';}})();" );
 	}
 
 	/**

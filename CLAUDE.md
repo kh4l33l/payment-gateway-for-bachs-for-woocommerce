@@ -111,6 +111,7 @@ User meta `_pgbw_customer_id_{sandbox|live}` stores the Bachs customer ID so ret
   - `pgbw_create_product_args`
 - Action: `pgbw_webhook_event( $type, $payload )` runs after a handled event.
 - Core filters respected: `woocommerce_gateway_icon`, `woocommerce_valid_order_statuses_for_cancel`
+- Core filters used: `woocommerce_payment_complete_order_status`, `woocommerce_order_needs_payment`, `woocommerce_valid_order_statuses_for_cancel` and `woocommerce_cancel_unpaid_order` (see the paid-order decisions)
 
 ## Decisions
 
@@ -122,6 +123,9 @@ User meta `_pgbw_customer_id_{sandbox|live}` stores the Bachs customer ID so ret
 - **Fixed-price product per order.** When the plugin was written, checkout sessions needed product IDs. A fixed price locks the amount on the Bachs checkout. Bachs now accepts a raw `pricing` object (see the backlog).
 - **Popup `baseUrl`.** `pgbw-bachs-popup.js` takes the `bachs.js` `baseUrl` from the checkout URL's origin so sandbox sessions pass the SDK's origin check. The current docs say this isn't needed when a full `checkoutUrl` is passed. It's harmless, so it's kept.
 - **Expired checkouts leave the order pending.** Before Bachs removed `collection.abandoned`, abandoned checkouts cancelled the order. Now that customers can pay again, `checkout.expired` only adds a note, and WooCommerce's Hold stock setting cancels unpaid orders. The trade-off is that stores without stock management keep abandoned orders pending until someone cancels them.
+- **Popup return pages break out of the overlay.** After payment or a cancel, the Bachs checkout follows `success_url` or `cancel_url` inside the overlay's iframe, so our order-received page or order-pay form opened in the modal (order 15 on the sandbox site, 2026-11-03). In popup mode, `popup_breakout_script()` prints a script at the top of `wp_head` on those pages for Bachs orders. If the top window is our receipt page (it contains `#pgbw-bachs-popup`), the script hides the page and loads the same URL in the top window. Checking for that element keeps the script out of other frames, such as the Customizer preview.
+- **Order status after payment setting.** `paid_order_status` sets the status `payment_complete()` gives Bachs orders, through `woocommerce_payment_complete_order_status`. Empty means WooCommerce decides. The statuses in `UNPAID_STATUSES` (Pending payment, cancelled, refunded, failed and draft) aren't offered or applied, and a status that's no longer registered falls back to WooCommerce's choice. Pending payment was offered in a 1.2.0 pre-release and dropped: WooCommerce's Hold stock clean-up (`wc_cancel_unpaid_orders`) cancels pending orders by status alone, Analytics leaves them out, and the New order and confirmation emails don't fire. On hold covers the manual-review case.
+- **Paid orders in an unpaid status.** A merchant can move a paid order back to pending. WooCommerce then shows Pay and Cancel on the order-received and My account pages, and its Hold stock clean-up would cancel and restock the order. `has_bachs_payment()` treats an order as paid when it has a paid date and a Bachs charge ID, and the gateway uses it to remove both actions, close the order-pay page, skip the clean-up and ignore later payment webhooks. Bachs can send `collection.succeeded` with a null `charge_id` (test webhooks, some reconciled payments); the order still completes, a warning is logged, and `has_bachs_payment()` doesn't cover it. Underpaid orders have a charge ID but no paid date, so they aren't affected.
 - **Short payments go on hold, even from a replaced session.** Money was received, so the merchant has to decide whether to collect the balance or refund. A later `collection.succeeded` for the same order still completes it.
 - **Idempotency key only on checkout sessions.** The key is the session reference, so a request that timed out after Bachs created the session returns that session on the next identical request. If the body changed (for example new billing details), Bachs answers `IDEMPOTENCY_CONFLICT` and the plugin moves to the next reference. Products don't use a key, because a duplicate product is harmless and a cached response could return an archived product. Refunds don't use one either (see Refunds).
 - **Errors are escaped in exceptions** to satisfy Plugin Check (`ExceptionNotEscaped`). As a side effect, log lines show entities such as `&#039;`. `PGBW_API` keeps the unescaped `last_error_code` and `last_error_detail` for logic, and error messages include the Bachs `error_code` and `x-request-id`.
@@ -165,6 +169,21 @@ The 2026-09-19 review found three fixes needed before release and four should-fi
 1.1.0 was released to WordPress.org on 2026-09-19 (SVN r3703239, git tag `v1.1.0`) and deployed to wiggledoo.com the same day. It was tested there without a sandbox: checkout rendering, the cancel link, session reuse and both webhook signature headers. No payment has gone through a checkout session created by 1.1.0 yet, so watch the first live payment.
 
 SVN releases are done by hand: check out the repo, sync the Pressship package into `trunk/` and `.wordpress-org/` into `assets/`, `svn cp trunk tags/{version}`, then commit. `svn` is installed with Homebrew.
+
+### 1.2.0 (in progress)
+
+Committed but not tagged, run through Pressship or released. It adds the Order status after payment setting, hides Pay and Cancel on paid orders, stops the Hold stock clean-up cancelling them, and moves the popup's return pages out of the overlay. Hiding Pay and Cancel was tested on a store. The popup breakout hasn't been tested with a real payment yet, so test it in the sandbox before releasing. If the redirect out of the iframe throws, the script shows the page again rather than leaving the modal blank.
+
+The API changelog was read on 2026-11-09 and nothing breaks the plugin. Webhook payloads and `POST /v1/refunds` still use `charge_id`. The `charge_id` to `payment_id` rename (week of 2026-07-14) applies to `/v1/payments` and to the `charge` object inside `GET /v1/checkout-sessions/{id}`. Endpoints failing for 72 hours are now disabled automatically (week of 2026-10-05).
+
+Proposed, not yet agreed:
+
+1. Handle the `checkout.completed` webhook when `data.payment_status` is `paid` (charge in `data.charge.id`), fulfilling on whichever of it and `collection.succeeded` arrives first. Check the payload in the sandbox.
+2. On the order-received page for a pending Bachs order, fetch the checkout session server-side and complete the order if Bachs reports it paid. The documented response has `status`, `payment_status` (example value `succeeded`, while the `checkout.completed` webhook uses `paid`) and `charge.payment_id`. Check in the sandbox whether `payment_id` equals the `charge_id` that refunds need.
+
+Items 1 and 2 can both complete the order at the same time as `collection.succeeded`, and the `is_paid()` check isn't atomic. Add a per-order lock (for example an `add_option()` row) first.
+
+Local testing: dev.localhost (Cove site `dev`) has WooCommerce and this plugin active, NGN currency, popup mode and no Bachs keys. System PHP lacks mysqli, so run WP-CLI as `frankenphp php-cli /opt/homebrew/bin/wp`. Get an admin login link with `cove login dev`.
 
 ### Later
 
