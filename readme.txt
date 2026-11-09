@@ -81,10 +81,9 @@ Not in this version. This release covers one-time payments and refunds.
 == Changelog ==
 
 = 1.2.0 =
-* New: an "Order status after payment" setting chooses the status Bachs orders get when payment is confirmed. The default leaves the choice to WooCommerce, as before.
-* Fix: a paid Bachs order moved back to Pending payment no longer shows Pay and Cancel buttons. Customers can't cancel it or pay for it again, and WooCommerce's Hold stock clean-up no longer cancels it.
-* Fix: in popup mode, the order-received page and the order payment page open in the main window if the Bachs checkout loads them inside its modal.
-* Fix: in popup mode, the order payment form no longer reopens the previous Bachs checkout automatically. After a checkout expires, customers pay again from that form, which starts a new checkout.
+* New: "Order status after payment" setting.
+* Fix: paid orders can no longer be paid for or cancelled again.
+* Fix: popup mode no longer opens store pages inside the Bachs modal or reopens an expired checkout.
 
 = 1.1.0 =
 * Fix: customers can pay again for an unpaid order. A second payment attempt no longer fails with a "Duplicate reference" error, and an open Bachs checkout is reused.
@@ -104,7 +103,7 @@ Not in this version. This release covers one-time payments and refunds.
 == Upgrade Notice ==
 
 = 1.2.0 =
-Adds an Order status after payment setting and fixes popup checkout pages opening inside the Bachs modal or reopening an expired checkout.
+Adds an Order status after payment setting and fixes popup checkout issues.
 
 = 1.1.0 =
 Bachs removed the collection.abandoned webhook event. In your Bachs developer portal, subscribe your webhook endpoint to checkout.expired, collection.underpaid and refund.failed.
