@@ -56,7 +56,7 @@ The gateway ID is `pgbw_bachs`, and its settings live in the `woocommerce_pgbw_b
    - The session ID, checkout URL and attempt count are saved on the order, and the order is set to pending.
 2. **Where the customer goes**
    - **Redirect mode:** straight to the session's `checkout_url`.
-   - **Popup mode:** to the order-pay receipt page (`get_checkout_payment_url( true )`). There, `receipt_page()` renders the opener markup and `payment_scripts()` loads `https://checkout.bachs.io/bachs.js` and `pgbw-bachs-popup.js`, which call `Bachs.Checkout.open()`.
+   - **Popup mode:** to the order-pay receipt page (`get_checkout_payment_url( true )`). There, `receipt_page()` renders the opener markup and `payment_scripts()` loads `https://checkout.bachs.io/bachs.js` and `pgbw-bachs-popup.js`, which call `Bachs.Checkout.open()`. The scripts load only on the receipt page of an order that needs payment, never on the order-pay form (`pay_for_order`). Before 1.2.0 they also loaded on the form and opened the stored session there, which after `checkout.expired` meant reopening the expired checkout.
 3. **Fulfilment only happens on the webhook.** Bachs posts to `WC()->api_request_url( 'pgbw_bachs' )`, which is `/wc-api/pgbw_bachs/`. `process_webhook()` verifies the signature, then dispatches on `type` through `webhook_events()`. Browser events and redirects only drive the UI.
 4. **Popup events:**
    - `checkout.completed`: go to the order-received page.

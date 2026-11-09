@@ -1138,11 +1138,17 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 	}
 
 	/**
-	 * Enqueue bachs.js and the popup opener on the order-pay page for a popup-mode Bachs order.
+	 * Enqueue bachs.js and the popup opener on the receipt page for a popup-mode Bachs order.
+	 *
+	 * Only the receipt page (order-pay without pay_for_order) opens the popup. The order-pay
+	 * form is where customers land when a session expires, so opening the stored session there
+	 * would reopen the expired checkout. Placing the order from the form reuses an open session
+	 * or creates a new one, then returns to the receipt page.
 	 */
 	public function payment_scripts() {
 
-		if ( ! function_exists( 'is_wc_endpoint_url' ) || ! is_wc_endpoint_url( 'order-pay' ) ) {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Only checks which WooCommerce order-pay view this is.
+		if ( ! function_exists( 'is_wc_endpoint_url' ) || ! is_wc_endpoint_url( 'order-pay' ) || isset( $_GET['pay_for_order'] ) ) {
 			return;
 		}
 
@@ -1155,7 +1161,7 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 
 		$order = wc_get_order( $order_id );
 
-		if ( ! $order || $order->get_payment_method() !== $this->id || 'popup' !== $this->checkout_type ) {
+		if ( ! $order || $order->get_payment_method() !== $this->id || 'popup' !== $this->checkout_type || ! $order->needs_payment() ) {
 			return;
 		}
 
