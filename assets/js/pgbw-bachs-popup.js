@@ -11,6 +11,27 @@
 
 	var params = window.pgbw_popup;
 
+	// When the overlay iframe follows success_url or cancel_url, our return page loads inside it.
+	// The iframe's sandbox stops that page navigating this window, so it posts its URL here
+	// (see PGBW_Gateway::popup_breakout_script()) and this window navigates itself.
+	window.addEventListener( 'message', function ( event ) {
+		var url;
+
+		if ( event.origin !== window.location.origin || ! event.data || 'string' !== typeof event.data.pgbw_breakout ) {
+			return;
+		}
+
+		try {
+			url = new URL( event.data.pgbw_breakout );
+		} catch ( e ) {
+			return;
+		}
+
+		if ( url.origin === window.location.origin ) {
+			window.location.replace( url.href );
+		}
+	} );
+
 	function log() {
 		if ( '1' === params.debug && window.console ) {
 			// eslint-disable-next-line no-console

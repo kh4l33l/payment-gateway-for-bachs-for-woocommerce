@@ -1086,6 +1086,11 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 	 * cancel_url inside the overlay's iframe, so the order-received page or the order-pay form
 	 * opens in the modal over the receipt page. The script only acts when the top window is our
 	 * popup receipt page, so other frames (such as the Customizer preview) are left alone.
+	 *
+	 * The Bachs iframe is sandboxed with allow-top-navigation-by-user-activation only, so the
+	 * frame can't navigate the top window on page load (Chrome throws a SecurityError). It
+	 * posts the URL to the top window instead, and pgbw-bachs-popup.js there navigates. If
+	 * nothing answers within 3 seconds, the page is shown in the frame rather than left blank.
 	 */
 	public function popup_breakout_script() {
 
@@ -1109,7 +1114,7 @@ class PGBW_Gateway extends WC_Payment_Gateway {
 			return;
 		}
 
-		wp_print_inline_script_tag( "(function(){try{if(window.top!==window.self&&window.top.document.getElementById('pgbw-bachs-popup')){document.documentElement.style.visibility='hidden';window.top.location.replace(window.location.href);}}catch(e){document.documentElement.style.visibility='';}})();" );
+		wp_print_inline_script_tag( "(function(){var d=document.documentElement;try{if(window.top!==window.self&&window.top.document.getElementById('pgbw-bachs-popup')){d.style.visibility='hidden';setTimeout(function(){d.style.visibility='';},3000);window.top.postMessage({pgbw_breakout:window.location.href},window.location.origin);}}catch(e){d.style.visibility='';}})();" );
 	}
 
 	/**
